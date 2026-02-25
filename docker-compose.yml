@@ -1,0 +1,13 @@
+services:
+  pocket-dl:
+    build: .
+    image: pocket-dl:latest
+    container_name: pocket-dl
+    ports:
+      - "5050:5050"
+    volumes:
+      - ./downloads:/app/downloads
+    restart: unless-stopped
+    environment:
+      - PORT=5050
+      - DOWNLOAD_DIR=/app/downloads

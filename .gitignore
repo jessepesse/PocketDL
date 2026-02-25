@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Projektikohtaiset
+downloads/
+*.log
+*.mp4
+*.mp3
+*.webm
+
+# Docker
+.dockerignore
+
+# IDE
+.vscode/
+.idea/

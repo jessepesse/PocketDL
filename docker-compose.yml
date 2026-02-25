@@ -2,8 +2,8 @@ services:
   pocket-dl:
     # Build locally if the image is not found
     build: .
-    # Official image from GitHub Container Registry
-    image: ghcr.io/jessepesse/pocket-dl:latest
+    # Official image from GitHub Container Registry (matching the repo name lowercase)
+    image: ghcr.io/jessepesse/pocketdl:latest
     container_name: pocket-dl
     ports:
       - "5050:5050"

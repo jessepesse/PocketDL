@@ -134,11 +134,14 @@
         #status-container {
             margin-top: 32px;
             display: none;
+            padding: 16px;
+            background: #2c2c2c;
+            border-radius: 12px;
         }
 
         .progress-bar {
             height: 12px;
-            background-color: #2c2c2c;
+            background-color: #121212;
             border-radius: 6px;
             overflow: hidden;
             margin: 12px 0;
@@ -167,13 +170,14 @@
             border-radius: 10px;
             font-weight: bold;
             margin-top: 20px;
-            animation: fadeIn 0.5s ease;
             cursor: pointer;
         }
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+        .cancel-btn {
+            background-color: #333;
+            font-size: 14px;
+            padding: 8px;
+            margin-top: 12px;
         }
 
         .spinner {
@@ -194,9 +198,17 @@
 
         .video-title {
             font-weight: bold;
-            margin-bottom: 4px;
+            margin-bottom: 8px;
             text-align: center;
-            word-break: break-all;
+            font-size: 14px;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
         }
     </style>
 </head>
@@ -205,12 +217,12 @@
         <h1>PocketDL</h1>
         
         <div class="form-group">
-            <label for="url">Video Link</label>
-            <input type="text" id="url" placeholder="Paste URL here..." autocomplete="off">
+            <label for="url">Media Link</label>
+            <input type="text" id="url" placeholder="Paste YouTube, TikTok, X... URL here" autocomplete="off">
         </div>
 
         <div class="form-group">
-            <label>Download Format</label>
+            <label>Format</label>
             <div class="radio-group">
                 <div class="radio-option">
                     <input type="radio" name="format" value="video" id="fmt-video" checked>
@@ -230,7 +242,12 @@
             <div class="progress-bar">
                 <div id="progressFill" class="progress-fill"></div>
             </div>
-            <div id="statusText" class="status-text">Preparing...</div>
+            <div class="stats">
+                <span id="speedText">Speed: 0 KB/s</span>
+                <span id="etaText">ETA: N/A</span>
+            </div>
+            <div id="statusText" class="status-text" style="margin-top:10px">Preparing...</div>
+            <button id="cancelBtn" class="cancel-btn">Cancel Download</button>
             <div id="downloadAction"></div>
         </div>
 
@@ -246,8 +263,11 @@
         const statusContainer = document.getElementById('status-container');
         const progressFill = document.getElementById('progressFill');
         const statusText = document.getElementById('statusText');
+        const speedText = document.getElementById('speedText');
+        const etaText = document.getElementById('etaText');
         const videoTitle = document.getElementById('videoTitle');
         const downloadAction = document.getElementById('downloadAction');
+        const cancelBtn = document.getElementById('cancelBtn');
         const historyContainer = document.getElementById('history-container');
         const historyList = document.getElementById('history-list');
 
@@ -258,7 +278,6 @@
             try {
                 const res = await fetch('/history');
                 const files = await res.json();
-                
                 if (files.length > 0) {
                     historyContainer.style.display = 'block';
                     historyList.innerHTML = '';
@@ -279,7 +298,7 @@
                         
                         const title = document.createElement('div');
                         title.textContent = file.filename;
-                        title.style.fontSize = '14px';
+                        title.style.fontSize = '13px';
                         title.style.fontWeight = 'bold';
                         title.style.whiteSpace = 'nowrap';
                         title.style.textOverflow = 'ellipsis';
@@ -287,7 +306,7 @@
                         
                         const meta = document.createElement('div');
                         meta.textContent = `${file.format.toUpperCase()} • ${file.size} MB`;
-                        meta.style.fontSize = '12px';
+                        meta.style.fontSize = '11px';
                         meta.style.color = 'var(--text-secondary)';
                         
                         info.appendChild(title);
@@ -301,15 +320,7 @@
                         dlBtn.style.marginTop = '0';
                         dlBtn.style.backgroundColor = '#3d3d3d';
                         dlBtn.onclick = () => {
-                            const url = `/files/history/${encodeURIComponent(file.filename)}`;
-                            const link = document.createElement('a');
-                            link.href = url;
-                            link.target = '_blank';
-                            link.rel = 'noopener noreferrer';
-                            link.download = file.filename;
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
+                            window.open(`/files/history/${encodeURIComponent(file.filename)}`, '_blank');
                         };
                         
                         item.appendChild(info);
@@ -319,27 +330,23 @@
                 } else {
                     historyContainer.style.display = 'none';
                 }
-            } catch (err) {
-                console.error("History fetch error", err);
-            }
+            } catch (err) { console.error("History error", err); }
         }
 
         async function startDownload() {
             const url = urlInput.value.trim();
             const format = document.querySelector('input[name="format"]:checked').value;
+            if (!url) return alert("Please enter a URL!");
 
-            if (!url) {
-                alert("Please enter a video URL!");
-                return;
-            }
-
-            // Reset UI
             statusContainer.style.display = 'block';
             progressFill.style.width = '0%';
-            statusText.innerHTML = '<div class="spinner"></div> Fetching info...';
+            statusText.innerHTML = '<div class="spinner"></div> Connecting...';
+            speedText.textContent = 'Speed: 0 KB/s';
+            etaText.textContent = 'ETA: N/A';
             downloadAction.innerHTML = '';
             videoTitle.textContent = '';
             downloadBtn.disabled = true;
+            cancelBtn.style.display = 'block';
 
             try {
                 const res = await fetch('/download', {
@@ -347,17 +354,17 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url, format })
                 });
-
                 const data = await res.json();
                 if (res.ok) {
                     currentJobId = data.job_id;
                     startPolling();
                 } else {
-                    statusText.textContent = "Error: " + data.error;
+                    alert("Error: " + data.error);
+                    statusContainer.style.display = 'none';
                     downloadBtn.disabled = false;
                 }
             } catch (err) {
-                statusText.textContent = "Connection error!";
+                alert("Connection error!");
                 downloadBtn.disabled = false;
             }
         }
@@ -370,52 +377,46 @@
                     const data = await res.json();
 
                     if (data.status === 'downloading') {
-                        statusText.textContent = `Downloading to server... ${Math.round(data.progress)}%`;
+                        statusText.textContent = `Downloading... ${Math.round(data.progress)}%`;
                         progressFill.style.width = data.progress + '%';
-                        videoTitle.textContent = data.title;
+                        speedText.textContent = `Speed: ${data.speed}`;
+                        etaText.textContent = `ETA: ${data.eta}`;
                     } else if (data.status === 'finished') {
                         clearInterval(pollInterval);
-                        statusText.textContent = "Download complete on server!";
+                        statusText.textContent = "Done!";
                         progressFill.style.width = '100%';
                         downloadBtn.disabled = false;
+                        cancelBtn.style.display = 'none';
                         
                         const link = document.createElement('a');
                         link.href = `/files/${currentJobId}/${encodeURIComponent(data.filename)}`;
                         link.className = 'download-link';
-                        link.style.border = 'none';
                         link.textContent = 'Save to Device';
-                        // For iOS Safari: target="_blank" helps force the download
                         link.target = '_blank';
-                        link.rel = 'noopener noreferrer';
-                        link.download = data.filename;
                         downloadAction.appendChild(link);
-                        fetchHistory(); // Refresh history
+                        fetchHistory();
+                    } else if (data.status === 'cancelled') {
+                        clearInterval(pollInterval);
+                        statusText.textContent = "Cancelled.";
+                        downloadBtn.disabled = false;
+                        cancelBtn.style.display = 'none';
                     } else if (data.status === 'error') {
                         clearInterval(pollInterval);
                         statusText.textContent = "Error: " + data.error;
                         downloadBtn.disabled = false;
+                        cancelBtn.style.display = 'none';
                     }
-                } catch (err) {
-                    console.error("Polling error", err);
-                }
+                } catch (err) { console.error("Polling error", err); }
             }, 1000);
         }
 
+        cancelBtn.onclick = async () => {
+            if (!currentJobId) return;
+            await fetch(`/cancel/${currentJobId}`, { method: 'POST' });
+        };
+
         downloadBtn.addEventListener('click', startDownload);
-
-        // Auto-paste functionality for better UX on mobile
-        urlInput.addEventListener('focus', async () => {
-            if (urlInput.value === '' && navigator.clipboard) {
-                try {
-                    const text = await navigator.clipboard.readText();
-                    if (text.includes('youtube.com') || text.includes('youtu.be')) {
-                        urlInput.value = text;
-                    }
-                } catch (e) {}
-            }
-        });
-
-        fetchHistory(); // Load history immediately
+        fetchHistory();
     </script>
 </body>
 </html>

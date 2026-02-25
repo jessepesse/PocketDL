@@ -1,7 +1,9 @@
 services:
   pocket-dl:
+    # Build locally if the image is not found
     build: .
-    image: pocket-dl:latest
+    # Official image from GitHub Container Registry
+    image: ghcr.io/jessepesse/pocket-dl:latest
     container_name: pocket-dl
     ports:
       - "5050:5050"
@@ -11,3 +13,5 @@ services:
     environment:
       - PORT=5050
       - DOWNLOAD_DIR=/app/downloads
+      - MIN_DISK_SPACE_GB=2
+      - MAX_CONCURRENT_DOWNLOADS=3

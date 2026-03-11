@@ -69,6 +69,10 @@ def run_download(url, job_id, format_type='video'):
             with jobs_lock:
                 if job_id in jobs and jobs[job_id]['status'] == 'cancelled':
                     process.kill()
+                    for f in os.listdir(DOWNLOAD_DIR):
+                        if f.endswith('.part') or f.endswith('.ytdl'):
+                            try: os.remove(os.path.join(DOWNLOAD_DIR, f))
+                            except: pass
                     return
 
         process.wait()
@@ -182,6 +186,17 @@ def get_history():
 @app.route('/files/<job_id>/<path:filename>')
 def serve_file(job_id, filename):
     return send_from_directory(DOWNLOAD_DIR, filename, as_attachment=True, mimetype='application/octet-stream')
+
+@app.route('/files/history/<path:filename>', methods=['DELETE'])
+def delete_file(filename):
+    file_path = os.path.join(DOWNLOAD_DIR, filename)
+    try:
+        os.remove(file_path)
+        return jsonify({"status": "deleted"})
+    except FileNotFoundError:
+        return jsonify({"error": "File not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.after_request
 def add_header(response):

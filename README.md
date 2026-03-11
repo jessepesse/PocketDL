@@ -1,8 +1,10 @@
 # PocketDL 🚀
 
-A modern, lightweight, and Dockerized media downloader with a responsive Web UI. 
-Supporting **1000+ sites** (including YouTube, TikTok, Twitter/X, and Instagram) via the power of `yt-dlp`. 
+A modern, lightweight, and Dockerized media downloader with a responsive Web UI.
+Supporting **1000+ sites** (including YouTube, TikTok, Twitter/X, and Instagram) via the power of `yt-dlp`.
 Perfect for downloading videos and music directly to your iOS, Android, or PC.
+
+![PocketDL screenshot](screenshot.png)
 
 ## ✨ Features
 

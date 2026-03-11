@@ -322,9 +322,25 @@
                         dlBtn.onclick = () => {
                             window.open(`/files/history/${encodeURIComponent(file.filename)}`, '_blank');
                         };
-                        
+
+                        const delBtn = document.createElement('button');
+                        delBtn.textContent = '×';
+                        delBtn.title = 'Delete file';
+                        delBtn.style.width = 'auto';
+                        delBtn.style.padding = '6px 10px';
+                        delBtn.style.fontSize = '16px';
+                        delBtn.style.marginTop = '0';
+                        delBtn.style.marginLeft = '6px';
+                        delBtn.style.backgroundColor = '#3d3d3d';
+                        delBtn.style.color = '#ff4444';
+                        delBtn.onclick = async () => {
+                            await fetch(`/files/history/${encodeURIComponent(file.filename)}`, { method: 'DELETE' });
+                            fetchHistory();
+                        };
+
                         item.appendChild(info);
                         item.appendChild(dlBtn);
+                        item.appendChild(delBtn);
                         historyList.appendChild(item);
                     });
                 } else {

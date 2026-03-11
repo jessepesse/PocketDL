@@ -4,6 +4,7 @@ services:
     build: .
     # Official image from GitHub Container Registry (matching the repo name lowercase)
     image: ghcr.io/jessepesse/pocketdl:latest
+    pull_policy: always
     container_name: pocket-dl
     ports:
       - "5050:5050"

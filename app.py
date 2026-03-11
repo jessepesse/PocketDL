@@ -4,8 +4,6 @@ import uuid
 import time
 import logging
 import shutil
-import subprocess
-import signal
 from flask import Flask, request, jsonify, send_from_directory, send_file
 import yt_dlp
 
@@ -77,7 +75,8 @@ def run_download(url, job_id, format_type='video'):
                     jobs[job_id]['filename'] = os.path.basename(filename)
                     jobs[job_id]['status'] = 'finished'
                     jobs[job_id]['progress'] = 100
-            
+                    jobs[job_id]['completed_at'] = time.time()
+
     except Exception as e:
         logger.error(f"Download error: {str(e)}")
         with jobs_lock:
@@ -85,6 +84,7 @@ def run_download(url, job_id, format_type='video'):
                 if jobs[job_id]['status'] != 'cancelled':
                     jobs[job_id]['status'] = 'error'
                     jobs[job_id]['error'] = str(e)
+                jobs[job_id]['completed_at'] = time.time()
 
 @app.route('/info')
 def get_info():
@@ -138,6 +138,7 @@ def cancel_download(job_id):
         if job_id in jobs:
             if jobs[job_id]['status'] in ['pending', 'downloading']:
                 jobs[job_id]['status'] = 'cancelled'
+                jobs[job_id]['completed_at'] = time.time()
                 # Note: Killing a thread in Python is hard, but yt-dlp will 
                 # eventually exit when it checks its internal state or when 
                 # the process is managed. For a truly robust kill, 
@@ -183,25 +184,25 @@ def add_header(response):
 def index():
     return send_from_directory('static', 'index.html')
 
-def update_ytdlp_loop():
-    while True:
-        try:
-            subprocess.run(["pip", "install", "-U", "yt-dlp"], capture_output=True)
-        except: pass
-        time.sleep(86400)
-
 def cleanup():
     while True:
         time.sleep(3600)
         now = time.time()
+        # Remove old files from disk
         if os.path.exists(DOWNLOAD_DIR):
             for f in os.listdir(DOWNLOAD_DIR):
                 p = os.path.join(DOWNLOAD_DIR, f)
                 if os.stat(p).st_mtime < now - 86400:
                     try: os.remove(p)
                     except: pass
+        # Remove completed/failed jobs older than 1 hour from memory
+        with jobs_lock:
+            stale = [jid for jid, j in jobs.items()
+                     if j['status'] in ('finished', 'error', 'cancelled')
+                     and now - j.get('completed_at', now) > 3600]
+            for jid in stale:
+                del jobs[jid]
 
-threading.Thread(target=update_ytdlp_loop, daemon=True).start()
 threading.Thread(target=cleanup, daemon=True).start()
 
 if __name__ == '__main__':

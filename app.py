@@ -13,6 +13,7 @@ import yt_dlp
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", os.path.join(os.path.dirname(__file__), "downloads"))
 MIN_DISK_SPACE_GB = int(os.environ.get("MIN_DISK_SPACE_GB", 2))
 MAX_CONCURRENT_DOWNLOADS = int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", 3))
+APP_VERSION = "1.1.5"
 
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
@@ -207,6 +208,10 @@ def add_header(response):
 @app.route('/')
 def index():
     return send_from_directory('static', 'index.html')
+
+@app.route('/version')
+def version():
+    return jsonify({"app": APP_VERSION, "ytdlp": yt_dlp.version.__version__})
 
 def cleanup():
     while True:

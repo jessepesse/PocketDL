@@ -15,8 +15,8 @@ Improve the download logic to handle errors more gracefully. If a 4K download fa
 ### 2. Enhanced Metadata & Embedding
 Utilize `yt-dlp` capabilities to embed thumbnails and metadata (artist, title, album) directly into the downloaded files. This ensures MP3s and MP4s look professional in mobile media players.
 
-### 3. Multi-Platform Awareness
-Officially support and document more platforms beyond YouTube. Since `yt-dlp` supports hundreds of sites (TikTok, Twitter/X, Instagram, SoundCloud, etc.), the UI should reflect that it is a universal media downloader.
+### 3. ~~Multi-Platform Awareness~~ ✅ Done
+README and UI now reflect support for 1000+ sites including YouTube, TikTok, Twitter/X, Instagram, and more.
 
 ### 4. Basic Authentication (Optional Security)
 Add support for simple environment-based authentication (`APP_USERNAME` and `APP_PASSWORD`). This will allow users to securely expose the service to the internet without needing a full reverse proxy setup.

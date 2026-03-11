@@ -11,8 +11,8 @@ Perfect for downloading videos and music directly to your iOS, Android, or PC.
 - **Multi-platform support**: Works seamlessly on iOS (Safari), Android, and Desktop.
 - **High Quality**: Automatically fetches the best available quality (4K/8K supported).
 - **Video & Audio**: Download as MP4 video or extract MP3 audio.
-- **Download History**: See and re-download your recent files.
-- **Auto-Update**: `yt-dlp` updates automatically to ensure service continuity.
+- **Download History**: See, re-download, or delete your recent files.
+- **Always Up-to-Date**: Docker image is rebuilt weekly with the latest `yt-dlp`.
 - **Dockerized**: Easy deployment with a single command.
 - **Auto-Cleanup**: Automatically removes files older than 24 hours.
 

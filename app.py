@@ -1,4 +1,6 @@
 import os
+import re
+import subprocess
 import threading
 import uuid
 import time
@@ -20,70 +22,78 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # In-memory storage for download jobs
-# {job_id: {status: '...', progress: 0, title: '...', filename: '...', process: Popen_obj}}
 jobs = {}
 jobs_lock = threading.Lock()
+job_processes = {}  # {job_id: Popen} — separate dict to avoid JSON serialization issues
 
-def progress_hook(d, job_id):
-    if d['status'] == 'downloading':
-        p = d.get('_percent_str', '0%').replace('%', '')
-        try:
-            with jobs_lock:
-                if job_id in jobs:
-                    jobs[job_id]['progress'] = float(p)
-                    jobs[job_id]['speed'] = d.get('_speed_str', 'N/A')
-                    jobs[job_id]['eta'] = d.get('_eta_str', 'N/A')
-        except ValueError:
-            pass
+PROGRESS_RE = re.compile(r'\[download\]\s+([\d.]+)%.*?at\s+(\S+)\s+ETA\s+(\S+)')
 
 def run_download(url, job_id, format_type='video'):
-    try:
-        ydl_opts = {
-            'format': 'bestvideo+bestaudio/best' if format_type == 'video' else 'bestaudio/best',
-            'merge_output_format': 'mp4',
-            'outtmpl': os.path.join(DOWNLOAD_DIR, '%(title)s_%(id)s.%(ext)s'),
-            'progress_hooks': [lambda d: progress_hook(d, job_id)],
-            'noplaylist': True,
-            'quiet': True,
-            'no_warnings': True
-        }
-        
-        if format_type == 'audio':
-            ydl_opts['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }]
+    cmd = [
+        'yt-dlp',
+        '--newline',
+        '--no-playlist',
+        '--print', 'after_move:filepath',
+        '--output', os.path.join(DOWNLOAD_DIR, '%(title)s_%(id)s.%(ext)s'),
+    ]
+    if format_type == 'video':
+        cmd += ['--format', 'bestvideo+bestaudio/best', '--merge-output-format', 'mp4']
+    else:
+        cmd += ['--format', 'bestaudio/best', '--extract-audio',
+                '--audio-format', 'mp3', '--audio-quality', '192K']
+    cmd.append(url)
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Note: yt-dlp library call is blocking, but we run this in a thread.
-            # To allow cancellation of the library call, we would need to wrap it differently,
-            # but for minimalism, we handle the job lifecycle here.
+    try:
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        with jobs_lock:
+            jobs[job_id]['status'] = 'downloading'
+            job_processes[job_id] = process
+
+        final_path = None
+        last_error = None
+
+        for line in process.stdout:
+            line = line.rstrip()
+            m = PROGRESS_RE.search(line)
+            if m:
+                with jobs_lock:
+                    if job_id in jobs:
+                        jobs[job_id]['progress'] = float(m.group(1))
+                        jobs[job_id]['speed'] = m.group(2)
+                        jobs[job_id]['eta'] = m.group(3)
+            elif line.startswith(DOWNLOAD_DIR):
+                final_path = line
+            elif 'ERROR' in line:
+                last_error = line
+
             with jobs_lock:
-                jobs[job_id]['status'] = 'downloading'
-            
-            info = ydl.extract_info(url, download=True)
-            
-            filename = ydl.prepare_filename(info)
-            if format_type == 'audio':
-                filename = os.path.splitext(filename)[0] + '.mp3'
-            elif format_type == 'video':
-                filename = os.path.splitext(filename)[0] + '.mp4'
-                
-            with jobs_lock:
-                if job_id in jobs:
-                    jobs[job_id]['filename'] = os.path.basename(filename)
-                    jobs[job_id]['status'] = 'finished'
-                    jobs[job_id]['progress'] = 100
-                    jobs[job_id]['completed_at'] = time.time()
+                if job_id in jobs and jobs[job_id]['status'] == 'cancelled':
+                    process.kill()
+                    return
+
+        process.wait()
+
+        with jobs_lock:
+            job_processes.pop(job_id, None)
+            if job_id not in jobs or jobs[job_id]['status'] == 'cancelled':
+                return
+            if process.returncode == 0 and final_path:
+                jobs[job_id]['filename'] = os.path.basename(final_path)
+                jobs[job_id]['status'] = 'finished'
+                jobs[job_id]['progress'] = 100
+                jobs[job_id]['completed_at'] = time.time()
+            else:
+                jobs[job_id]['status'] = 'error'
+                jobs[job_id]['error'] = last_error or 'Download failed'
+                jobs[job_id]['completed_at'] = time.time()
 
     except Exception as e:
         logger.error(f"Download error: {str(e)}")
         with jobs_lock:
-            if job_id in jobs:
-                if jobs[job_id]['status'] != 'cancelled':
-                    jobs[job_id]['status'] = 'error'
-                    jobs[job_id]['error'] = str(e)
+            job_processes.pop(job_id, None)
+            if job_id in jobs and jobs[job_id]['status'] != 'cancelled':
+                jobs[job_id]['status'] = 'error'
+                jobs[job_id]['error'] = str(e)
                 jobs[job_id]['completed_at'] = time.time()
 
 @app.route('/info')
@@ -139,10 +149,9 @@ def cancel_download(job_id):
             if jobs[job_id]['status'] in ['pending', 'downloading']:
                 jobs[job_id]['status'] = 'cancelled'
                 jobs[job_id]['completed_at'] = time.time()
-                # Note: Killing a thread in Python is hard, but yt-dlp will 
-                # eventually exit when it checks its internal state or when 
-                # the process is managed. For a truly robust kill, 
-                # we'd use subprocess.Popen for yt-dlp instead of the library.
+                process = job_processes.get(job_id)
+                if process:
+                    process.kill()
                 return jsonify({"status": "cancelled"})
     return jsonify({"error": "Job not found or already finished"}), 404
 

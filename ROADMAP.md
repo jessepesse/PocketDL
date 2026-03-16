@@ -21,7 +21,10 @@ README and UI now reflect support for 1000+ sites including YouTube, TikTok, Twi
 ### 4. Basic Authentication (Optional Security)
 Add support for simple environment-based authentication (`APP_USERNAME` and `APP_PASSWORD`). This will allow users to securely expose the service to the internet without needing a full reverse proxy setup.
 
-### 5. Improved Error Reporting
+### 5. PWA & Mobile Share Target
+Convert the web UI into a Progressive Web App (PWA) with Share Target support. This allows mobile users to share URLs directly from YouTube, TikTok, or any browser to PocketDL via the native share menu — no need to manually copy and paste URLs.
+
+### 6. Improved Error Reporting
 Refine the UI to catch specific `yt-dlp` errors (like age restrictions or region blocks) and display them in a user-friendly way, suggesting alternatives when a download is impossible.
 
 ## 🚫 What We ARE NOT Adding

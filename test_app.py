@@ -195,6 +195,12 @@ def test_delete_nonexistent_file(isolated_app):
     assert resp.status_code == 404
 
 
+def test_delete_path_traversal_blocked(isolated_app, tmp_path):
+    resp = isolated_app.delete('/files/history/../../etc/passwd')
+    assert resp.status_code == 400
+    assert 'invalid' in resp.get_json()['error'].lower()
+
+
 # --- /files/ serving ---
 
 def test_serve_file(isolated_app, tmp_path):
@@ -280,6 +286,9 @@ def test_download_builds_correct_video_command(isolated_app):
         assert '--embed-metadata' in cmd
         assert '--merge-output-format' in cmd
         assert 'mp4' in cmd
+        # URL must come after -- separator to prevent argument injection
+        separator_idx = cmd.index('--')
+        assert cmd[separator_idx + 1] == 'https://example.com'
 
 
 def test_download_builds_correct_audio_command(isolated_app):
@@ -299,6 +308,8 @@ def test_download_builds_correct_audio_command(isolated_app):
         assert '--extract-audio' in cmd
         assert '--audio-format' in cmd
         assert 'mp3' in cmd
+        separator_idx = cmd.index('--')
+        assert cmd[separator_idx + 1] == 'https://example.com'
 
 
 # --- Progress parsing ---

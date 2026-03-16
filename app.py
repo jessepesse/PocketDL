@@ -44,7 +44,7 @@ def run_download(url, job_id, format_type='video'):
     else:
         cmd += ['--format', 'bestaudio/best', '--extract-audio',
                 '--audio-format', 'mp3', '--audio-quality', '192K']
-    cmd.append(url)
+    cmd += ['--', url]
 
     try:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -122,20 +122,18 @@ def start_download():
     if free_gb < MIN_DISK_SPACE_GB:
         return jsonify({"error": f"Low disk space. Only {free_gb}GB remaining."}), 507
 
-    # 2. Check Concurrent Limits
+    data = request.json
+    url = data.get('url')
+    format_type = data.get('format', 'video')
+
+    if not url: return jsonify({"error": "No URL provided"}), 400
+
+    # Check concurrent limits and register job atomically
+    job_id = str(uuid.uuid4())
     with jobs_lock:
         active_jobs = [j for j in jobs.values() if j['status'] in ['pending', 'downloading']]
         if len(active_jobs) >= MAX_CONCURRENT_DOWNLOADS:
             return jsonify({"error": "Too many active downloads. Please wait."}), 429
-
-    data = request.json
-    url = data.get('url')
-    format_type = data.get('format', 'video')
-    
-    if not url: return jsonify({"error": "No URL provided"}), 400
-    
-    job_id = str(uuid.uuid4())
-    with jobs_lock:
         jobs[job_id] = {
             'status': 'pending',
             'progress': 0,
@@ -192,7 +190,9 @@ def serve_file(job_id, filename):
 
 @app.route('/files/history/<path:filename>', methods=['DELETE'])
 def delete_file(filename):
-    file_path = os.path.join(DOWNLOAD_DIR, filename)
+    file_path = os.path.realpath(os.path.join(DOWNLOAD_DIR, filename))
+    if not file_path.startswith(os.path.realpath(DOWNLOAD_DIR) + os.sep):
+        return jsonify({"error": "Invalid filename"}), 400
     try:
         os.remove(file_path)
         return jsonify({"status": "deleted"})
@@ -221,11 +221,12 @@ def cleanup():
         now = time.time()
         # Remove old files from disk
         if os.path.exists(DOWNLOAD_DIR):
-            for f in os.listdir(DOWNLOAD_DIR):
-                p = os.path.join(DOWNLOAD_DIR, f)
-                if os.stat(p).st_mtime < now - 86400:
-                    try: os.remove(p)
-                    except: pass
+            for entry in os.scandir(DOWNLOAD_DIR):
+                try:
+                    if entry.stat().st_mtime < now - 86400:
+                        os.remove(entry.path)
+                except (FileNotFoundError, OSError):
+                    pass
         # Remove completed/failed jobs older than 1 hour from memory
         with jobs_lock:
             stale = [jid for jid, j in jobs.items()

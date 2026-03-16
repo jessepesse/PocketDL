@@ -13,7 +13,7 @@ import yt_dlp
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", os.path.join(os.path.dirname(__file__), "downloads"))
 MIN_DISK_SPACE_GB = int(os.environ.get("MIN_DISK_SPACE_GB", 2))
 MAX_CONCURRENT_DOWNLOADS = int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", 3))
-APP_VERSION = "1.1.5"
+APP_VERSION = "1.2.0"
 
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
@@ -36,6 +36,8 @@ def run_download(url, job_id, format_type='video'):
         '--no-playlist',
         '--print', 'after_move:filepath',
         '--output', os.path.join(DOWNLOAD_DIR, '%(title)s_%(id)s.%(ext)s'),
+        '--embed-thumbnail',
+        '--embed-metadata',
     ]
     if format_type == 'video':
         cmd += ['--format', 'bestvideo+bestaudio/best', '--merge-output-format', 'mp4']

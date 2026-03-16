@@ -16,6 +16,9 @@ downloads/
 .dockerignore
 docker-compose.override.yml
 
+# Tests
+.pytest_cache/
+
 # IDE
 .vscode/
 .idea/

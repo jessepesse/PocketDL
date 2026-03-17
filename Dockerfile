@@ -4,7 +4,7 @@ FROM python:3.11-slim
 # Install FFmpeg and Deno (JS runtime for yt-dlp-ejs)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ffmpeg curl unzip && \
-    curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh && \
+    curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh -s v2.7.5 && \
     apt-get purge -y curl unzip && \
     apt-get autoremove -y && \
     apt-get clean && \

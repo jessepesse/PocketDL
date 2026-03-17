@@ -11,6 +11,14 @@ services:
     volumes:
       - ./downloads:/app/downloads
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
     environment:
       - PORT=5050
       - DOWNLOAD_DIR=/app/downloads

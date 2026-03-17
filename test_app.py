@@ -63,6 +63,12 @@ def test_download_missing_url(isolated_app):
     assert 'error' in resp.get_json()
 
 
+def test_download_invalid_json(isolated_app):
+    resp = isolated_app.post('/download', data='not-json', content_type='text/plain')
+    assert resp.status_code == 400
+    assert 'error' in resp.get_json()
+
+
 def test_download_low_disk_space(isolated_app):
     fake_usage = os.statvfs_result((0, 0, 0, 0, 0, 0, 0, 0, 0, 0)) if hasattr(os, 'statvfs_result') else None
     with patch('shutil.disk_usage', return_value=(100 * 2**30, 99 * 2**30, 0)):
@@ -193,6 +199,33 @@ def test_delete_file(isolated_app, tmp_path):
 def test_delete_nonexistent_file(isolated_app):
     resp = isolated_app.delete('/files/history/ghost.mp4')
     assert resp.status_code == 404
+
+
+def test_history_get_file(isolated_app, tmp_path):
+    (tmp_path / 'test_vid.mp4').write_bytes(b'fakevideo')
+    resp = isolated_app.get('/files/history/test_vid.mp4')
+    assert resp.status_code == 200
+    assert resp.data == b'fakevideo'
+
+
+def test_healthz_ok(isolated_app):
+    resp = isolated_app.get('/healthz')
+    assert resp.status_code == 200
+    assert resp.get_json()['status'] == 'ok'
+
+
+def test_cancel_only_removes_own_temp_files(isolated_app, tmp_path):
+    # Other job's temp file should survive cancellation of job A
+    other_temp = tmp_path / '_job_other-job_video.mp4.part'
+    other_temp.write_bytes(b'other')
+
+    mock_proc = MagicMock()
+    with app_module.jobs_lock:
+        app_module.jobs['cancel-me'] = {'status': 'downloading'}
+        app_module.job_processes['cancel-me'] = mock_proc
+
+    isolated_app.post('/cancel/cancel-me')
+    assert other_temp.exists(), "Cancel should not delete other jobs' temp files"
 
 
 def test_delete_path_traversal_blocked(isolated_app, tmp_path):

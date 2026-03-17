@@ -30,12 +30,15 @@ job_processes = {}  # {job_id: Popen} — separate dict to avoid JSON serializat
 PROGRESS_RE = re.compile(r'\[download\]\s+([\d.]+)%.*?at\s+(\S+)\s+ETA\s+(\S+)')
 
 def run_download(url, job_id, format_type='video'):
+    job_output_template = os.path.join(DOWNLOAD_DIR, f'%(title)s_%(id)s.%(ext)s')
+    job_temp_prefix = os.path.join(DOWNLOAD_DIR, f'_job_{job_id}_')
     cmd = [
         'yt-dlp',
         '--newline',
         '--no-playlist',
         '--print', 'after_move:filepath',
-        '--output', os.path.join(DOWNLOAD_DIR, '%(title)s_%(id)s.%(ext)s'),
+        '--output', job_output_template,
+        '--temp-filename-prefix', f'_job_{job_id}_',
         '--embed-thumbnail',
         '--embed-metadata',
     ]
@@ -73,7 +76,7 @@ def run_download(url, job_id, format_type='video'):
                 if job_id in jobs and jobs[job_id]['status'] == 'cancelled':
                     process.kill()
                     for f in os.listdir(DOWNLOAD_DIR):
-                        if f.endswith('.part') or f.endswith('.ytdl'):
+                        if f.startswith(f'_job_{job_id}_'):
                             try: os.remove(os.path.join(DOWNLOAD_DIR, f))
                             except: pass
                     return
@@ -122,7 +125,9 @@ def start_download():
     if free_gb < MIN_DISK_SPACE_GB:
         return jsonify({"error": f"Low disk space. Only {free_gb}GB remaining."}), 507
 
-    data = request.json
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Invalid or missing JSON body"}), 400
     url = data.get('url')
     format_type = data.get('format', 'video')
 
@@ -144,7 +149,7 @@ def start_download():
             'error': ''
         }
     
-    threading.Thread(target=run_download, args=(url, job_id, format_type)).start()
+    threading.Thread(target=run_download, args=(url, job_id, format_type), daemon=True).start()
     return jsonify({"job_id": job_id})
 
 @app.route('/cancel/<job_id>', methods=['POST'])
@@ -174,7 +179,10 @@ def get_history():
     for filename in os.listdir(DOWNLOAD_DIR):
         if filename.endswith(('.mp4', '.mp3')):
             file_path = os.path.join(DOWNLOAD_DIR, filename)
-            stats = os.stat(file_path)
+            try:
+                stats = os.stat(file_path)
+            except FileNotFoundError:
+                continue
             files.append({
                 "filename": filename,
                 "size": round(stats.st_size / (1024 * 1024), 2),
@@ -186,6 +194,13 @@ def get_history():
 
 @app.route('/files/<job_id>/<path:filename>')
 def serve_file(job_id, filename):
+    return send_from_directory(DOWNLOAD_DIR, filename, as_attachment=True, mimetype='application/octet-stream')
+
+@app.route('/files/history/<path:filename>', methods=['GET'])
+def serve_history_file(filename):
+    file_path = os.path.realpath(os.path.join(DOWNLOAD_DIR, filename))
+    if not file_path.startswith(os.path.realpath(DOWNLOAD_DIR) + os.sep):
+        return jsonify({"error": "Invalid filename"}), 400
     return send_from_directory(DOWNLOAD_DIR, filename, as_attachment=True, mimetype='application/octet-stream')
 
 @app.route('/files/history/<path:filename>', methods=['DELETE'])
@@ -210,6 +225,11 @@ def add_header(response):
 @app.route('/')
 def index():
     return send_from_directory('static', 'index.html')
+
+@app.route('/healthz')
+def healthz():
+    ok = os.path.isdir(DOWNLOAD_DIR)
+    return jsonify({"status": "ok" if ok else "error", "download_dir": ok}), 200 if ok else 500
 
 @app.route('/version')
 def version():

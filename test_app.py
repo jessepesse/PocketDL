@@ -80,11 +80,20 @@ def test_download_low_disk_space(isolated_app):
 def test_download_concurrent_limit(isolated_app):
     with app_module.jobs_lock:
         for i in range(app_module.MAX_CONCURRENT_DOWNLOADS):
-            app_module.jobs[f'fake-{i}'] = {'status': 'downloading'}
+            app_module.jobs[f'fake-{i}'] = {'status': 'downloading', 'url': f'https://example.com/{i}'}
 
     resp = isolated_app.post('/download', json={'url': 'https://example.com'})
     assert resp.status_code == 429
     assert 'too many' in resp.get_json()['error'].lower()
+
+
+def test_download_duplicate_url_rejected(isolated_app):
+    with app_module.jobs_lock:
+        app_module.jobs['existing'] = {'status': 'downloading', 'url': 'https://example.com/video'}
+
+    resp = isolated_app.post('/download', json={'url': 'https://example.com/video'})
+    assert resp.status_code == 409
+    assert 'already' in resp.get_json()['error'].lower()
 
 
 def test_download_returns_job_id(isolated_app):
@@ -238,10 +247,20 @@ def test_delete_path_traversal_blocked(isolated_app, tmp_path):
 
 def test_serve_file(isolated_app, tmp_path):
     (tmp_path / 'test_vid.mp4').write_bytes(b'fakevideo')
+    with app_module.jobs_lock:
+        app_module.jobs['some-job-id'] = {'status': 'finished', 'filename': 'test_vid.mp4'}
     resp = isolated_app.get('/files/some-job-id/test_vid.mp4')
     assert resp.status_code == 200
     assert resp.data == b'fakevideo'
     assert resp.headers.get('Cache-Control') == 'no-cache'
+
+
+def test_serve_file_wrong_job(isolated_app, tmp_path):
+    (tmp_path / 'test_vid.mp4').write_bytes(b'fakevideo')
+    with app_module.jobs_lock:
+        app_module.jobs['job-a'] = {'status': 'finished', 'filename': 'other_vid.mp4'}
+    resp = isolated_app.get('/files/job-a/test_vid.mp4')
+    assert resp.status_code == 404
 
 
 def test_serve_nonexistent_file(isolated_app):
@@ -256,6 +275,7 @@ def test_successful_download_sets_finished(isolated_app, tmp_path):
     final_file.write_bytes(b'fakevideo')
 
     output_lines = [
+        'TITLE:My Video\n',
         '[download]  50.0% of 10MiB at 2MiB/s ETA 00:05\n',
         f'{final_file}\n',
     ]
@@ -278,6 +298,7 @@ def test_successful_download_sets_finished(isolated_app, tmp_path):
         assert data['status'] == 'finished'
         assert data['filename'] == 'My Video_abc123.mp4'
         assert data['progress'] == 100
+        assert data['title'] == 'My Video'
 
 
 def test_failed_download_sets_error(isolated_app):

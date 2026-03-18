@@ -36,6 +36,7 @@ def run_download(url, job_id, format_type='video'):
         'yt-dlp',
         '--newline',
         '--no-playlist',
+        '--print', 'TITLE:%(title)s',
         '--print', 'after_move:filepath',
         '--output', job_output_template,
         '--temp-filename-prefix', f'_job_{job_id}_',
@@ -52,6 +53,11 @@ def run_download(url, job_id, format_type='video'):
     try:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         with jobs_lock:
+            # FIX: Check if already cancelled before overwriting status
+            if job_id not in jobs or jobs[job_id]['status'] == 'cancelled':
+                process.kill()
+                process.wait()
+                return
             jobs[job_id]['status'] = 'downloading'
             job_processes[job_id] = process
 
@@ -67,19 +73,29 @@ def run_download(url, job_id, format_type='video'):
                         jobs[job_id]['progress'] = float(m.group(1))
                         jobs[job_id]['speed'] = m.group(2)
                         jobs[job_id]['eta'] = m.group(3)
+            elif line.startswith('TITLE:'):
+                # FIX: Update title from yt-dlp output
+                with jobs_lock:
+                    if job_id in jobs:
+                        jobs[job_id]['title'] = line[6:]
             elif line.startswith(DOWNLOAD_DIR):
                 final_path = line
             elif 'ERROR' in line:
                 last_error = line
 
+            cancelled = False
             with jobs_lock:
                 if job_id in jobs and jobs[job_id]['status'] == 'cancelled':
-                    process.kill()
-                    for f in os.listdir(DOWNLOAD_DIR):
-                        if f.startswith(f'_job_{job_id}_'):
-                            try: os.remove(os.path.join(DOWNLOAD_DIR, f))
-                            except: pass
-                    return
+                    job_processes.pop(job_id, None)  # FIX: clean up dict
+                    cancelled = True
+            if cancelled:
+                process.kill()
+                process.wait()  # FIX: reap zombie, outside lock to avoid blocking
+                for f in os.listdir(DOWNLOAD_DIR):
+                    if f.startswith(f'_job_{job_id}_'):
+                        try: os.remove(os.path.join(DOWNLOAD_DIR, f))
+                        except: pass
+                return
 
         process.wait()
 
@@ -98,12 +114,12 @@ def run_download(url, job_id, format_type='video'):
                 jobs[job_id]['completed_at'] = time.time()
 
     except Exception as e:
-        logger.error(f"Download error: {str(e)}")
+        logger.error(f"Download error for job {job_id}: {str(e)}")
         with jobs_lock:
             job_processes.pop(job_id, None)
             if job_id in jobs and jobs[job_id]['status'] != 'cancelled':
                 jobs[job_id]['status'] = 'error'
-                jobs[job_id]['error'] = str(e)
+                jobs[job_id]['error'] = 'Download failed'  # FIX: don't expose internals
                 jobs[job_id]['completed_at'] = time.time()
 
 @app.route('/info')
@@ -115,7 +131,8 @@ def get_info():
             info = ydl.extract_info(url, download=False)
             return jsonify({"title": info.get('title'), "thumbnail": info.get('thumbnail')})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Info fetch error for {url}: {str(e)}")
+        return jsonify({"error": "Failed to fetch video info"}), 500
 
 @app.route('/download', methods=['POST'])
 def start_download():
@@ -139,8 +156,12 @@ def start_download():
         active_jobs = [j for j in jobs.values() if j['status'] in ['pending', 'downloading']]
         if len(active_jobs) >= MAX_CONCURRENT_DOWNLOADS:
             return jsonify({"error": "Too many active downloads. Please wait."}), 429
+        # FIX: Reject duplicate URL already being downloaded
+        if any(j.get('url') == url for j in active_jobs):
+            return jsonify({"error": "This URL is already being downloaded."}), 409
         jobs[job_id] = {
             'status': 'pending',
+            'url': url,
             'progress': 0,
             'speed': '0',
             'eta': 'N/A',
@@ -194,6 +215,11 @@ def get_history():
 
 @app.route('/files/<job_id>/<path:filename>')
 def serve_file(job_id, filename):
+    # FIX: Validate that filename belongs to this job
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if not job or job.get('filename') != filename:
+            return jsonify({"error": "File not found"}), 404
     return send_from_directory(DOWNLOAD_DIR, filename, as_attachment=True, mimetype='application/octet-stream')
 
 @app.route('/files/history/<path:filename>', methods=['GET'])
@@ -214,7 +240,8 @@ def delete_file(filename):
     except FileNotFoundError:
         return jsonify({"error": "File not found"}), 404
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Delete error for {filename}: {str(e)}")
+        return jsonify({"error": "Failed to delete file"}), 500
 
 @app.after_request
 def add_header(response):

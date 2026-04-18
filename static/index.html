@@ -399,7 +399,25 @@
             pollInterval = setInterval(async () => {
                 try {
                     const res = await fetch(`/status/${currentJobId}`);
-                    const data = await res.json();
+                    let data = null;
+                    try {
+                        data = await res.json();
+                    } catch (parseErr) {
+                        data = null;
+                    }
+
+                    if (!res.ok) {
+                        clearInterval(pollInterval);
+                        statusText.textContent = `Error: ${data?.error || `Status check failed (${res.status})`}`;
+                        downloadBtn.disabled = false;
+                        cancelBtn.style.display = 'none';
+                        currentJobId = null;
+                        return;
+                    }
+
+                    if (data.title) {
+                        videoTitle.textContent = data.title;
+                    }
 
                     if (data.status === 'downloading') {
                         statusText.textContent = `Downloading... ${Math.round(data.progress)}%`;
@@ -407,6 +425,7 @@
                         speedText.textContent = `Speed: ${data.speed}`;
                         etaText.textContent = `ETA: ${data.eta}`;
                     } else if (data.status === 'finished') {
+                        const finishedJobId = currentJobId;
                         clearInterval(pollInterval);
                         statusText.textContent = "Done!";
                         progressFill.style.width = '100%';
@@ -414,24 +433,34 @@
                         cancelBtn.style.display = 'none';
                         
                         const link = document.createElement('a');
-                        link.href = `/files/${currentJobId}/${encodeURIComponent(data.filename)}`;
+                        link.href = `/files/${finishedJobId}/${encodeURIComponent(data.filename)}`;
                         link.className = 'download-link';
                         link.textContent = 'Save to Device';
                         link.target = '_blank';
                         downloadAction.appendChild(link);
+                        currentJobId = null;
                         fetchHistory();
                     } else if (data.status === 'cancelled') {
                         clearInterval(pollInterval);
                         statusText.textContent = "Cancelled.";
                         downloadBtn.disabled = false;
                         cancelBtn.style.display = 'none';
+                        currentJobId = null;
                     } else if (data.status === 'error') {
                         clearInterval(pollInterval);
                         statusText.textContent = "Error: " + data.error;
                         downloadBtn.disabled = false;
                         cancelBtn.style.display = 'none';
+                        currentJobId = null;
                     }
-                } catch (err) { console.error("Polling error", err); }
+                } catch (err) {
+                    clearInterval(pollInterval);
+                    statusText.textContent = "Error: Failed to refresh download status.";
+                    downloadBtn.disabled = false;
+                    cancelBtn.style.display = 'none';
+                    currentJobId = null;
+                    console.error("Polling error", err);
+                }
             }, 1000);
         }
 

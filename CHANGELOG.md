@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-04-18
+
+### Fixed
+- Frontend polling now handles status endpoint errors gracefully and clears stale UI state
+- Video title is now updated during active polling
+- Job cancellation handles already-exited subprocesses safely (prevents race-condition crash)
+- Cancelling a job now removes its process handle from in-memory tracking
+- History file endpoints now reject partial files (e.g. `.part`) with 404
+
+### Tests
+- Added regression test for cancelling a job after process exit
+- Added tests to ensure `.part` files are blocked from history download/delete routes
+
 ## [1.3.0] - 2026-03-17
 
 ### Fixed
@@ -43,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See git history for changes prior to v1.2.0.
 
-[Unreleased]: https://github.com/jessepesse/PocketDL/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/jessepesse/PocketDL/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/jessepesse/PocketDL/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/jessepesse/PocketDL/compare/v1.2.1...v1.3.0
 [1.2.0]: https://github.com/jessepesse/PocketDL/compare/v1.1.5...v1.2.0

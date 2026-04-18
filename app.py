@@ -13,7 +13,7 @@ import yt_dlp
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", os.path.join(os.path.dirname(__file__), "downloads"))
 MIN_DISK_SPACE_GB = int(os.environ.get("MIN_DISK_SPACE_GB", 2))
 MAX_CONCURRENT_DOWNLOADS = int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", 3))
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
@@ -28,6 +28,21 @@ jobs_lock = threading.Lock()
 job_processes = {}  # {job_id: Popen} — separate dict to avoid JSON serialization issues
 
 PROGRESS_RE = re.compile(r'\[download\]\s+([\d.]+)%.*?at\s+(\S+)\s+ETA\s+(\S+)')
+ALLOWED_HISTORY_EXTENSIONS = {'.mp4', '.mp3'}
+
+
+def is_allowed_history_filename(filename):
+    _, ext = os.path.splitext(filename)
+    return ext.lower() in ALLOWED_HISTORY_EXTENSIONS
+
+
+def kill_process_safely(process):
+    if not process:
+        return
+    try:
+        process.kill()
+    except (ProcessLookupError, OSError):
+        pass
 
 def run_download(url, job_id, format_type='video'):
     job_output_template = os.path.join(DOWNLOAD_DIR, f'%(title)s_%(id)s.%(ext)s')
@@ -55,7 +70,7 @@ def run_download(url, job_id, format_type='video'):
         with jobs_lock:
             # FIX: Check if already cancelled before overwriting status
             if job_id not in jobs or jobs[job_id]['status'] == 'cancelled':
-                process.kill()
+                kill_process_safely(process)
                 process.wait()
                 return
             jobs[job_id]['status'] = 'downloading'
@@ -89,7 +104,7 @@ def run_download(url, job_id, format_type='video'):
                     job_processes.pop(job_id, None)  # FIX: clean up dict
                     cancelled = True
             if cancelled:
-                process.kill()
+                kill_process_safely(process)
                 process.wait()  # FIX: reap zombie, outside lock to avoid blocking
                 for f in os.listdir(DOWNLOAD_DIR):
                     if f.startswith(f'_job_{job_id}_'):
@@ -175,16 +190,19 @@ def start_download():
 
 @app.route('/cancel/<job_id>', methods=['POST'])
 def cancel_download(job_id):
+    process = None
     with jobs_lock:
         if job_id in jobs:
             if jobs[job_id]['status'] in ['pending', 'downloading']:
                 jobs[job_id]['status'] = 'cancelled'
                 jobs[job_id]['completed_at'] = time.time()
-                process = job_processes.get(job_id)
-                if process:
-                    process.kill()
-                return jsonify({"status": "cancelled"})
-    return jsonify({"error": "Job not found or already finished"}), 404
+                process = job_processes.pop(job_id, None)
+            else:
+                return jsonify({"error": "Job not found or already finished"}), 404
+        else:
+            return jsonify({"error": "Job not found or already finished"}), 404
+    kill_process_safely(process)
+    return jsonify({"status": "cancelled"})
 
 @app.route('/status/<job_id>')
 def get_status(job_id):
@@ -198,7 +216,7 @@ def get_history():
     files = []
     if not os.path.exists(DOWNLOAD_DIR): return jsonify([])
     for filename in os.listdir(DOWNLOAD_DIR):
-        if filename.endswith(('.mp4', '.mp3')):
+        if is_allowed_history_filename(filename):
             file_path = os.path.join(DOWNLOAD_DIR, filename)
             try:
                 stats = os.stat(file_path)
@@ -227,6 +245,8 @@ def serve_history_file(filename):
     file_path = os.path.realpath(os.path.join(DOWNLOAD_DIR, filename))
     if not file_path.startswith(os.path.realpath(DOWNLOAD_DIR) + os.sep):
         return jsonify({"error": "Invalid filename"}), 400
+    if not is_allowed_history_filename(filename):
+        return jsonify({"error": "File not found"}), 404
     return send_from_directory(DOWNLOAD_DIR, filename, as_attachment=True, mimetype='application/octet-stream')
 
 @app.route('/files/history/<path:filename>', methods=['DELETE'])
@@ -234,6 +254,8 @@ def delete_file(filename):
     file_path = os.path.realpath(os.path.join(DOWNLOAD_DIR, filename))
     if not file_path.startswith(os.path.realpath(DOWNLOAD_DIR) + os.sep):
         return jsonify({"error": "Invalid filename"}), 400
+    if not is_allowed_history_filename(filename):
+        return jsonify({"error": "File not found"}), 404
     try:
         os.remove(file_path)
         return jsonify({"status": "deleted"})

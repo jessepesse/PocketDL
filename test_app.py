@@ -152,6 +152,23 @@ def test_cancel_active_job(isolated_app):
         assert app_module.jobs['cancel-me']['status'] == 'cancelled'
 
 
+def test_cancel_handles_already_exited_process(isolated_app):
+    mock_proc = MagicMock()
+    mock_proc.kill.side_effect = ProcessLookupError("gone")
+    with app_module.jobs_lock:
+        app_module.jobs['cancel-race'] = {'status': 'downloading'}
+        app_module.job_processes['cancel-race'] = mock_proc
+
+    resp = isolated_app.post('/cancel/cancel-race')
+    assert resp.status_code == 200
+    assert resp.get_json()['status'] == 'cancelled'
+    mock_proc.kill.assert_called_once()
+
+    with app_module.jobs_lock:
+        assert app_module.jobs['cancel-race']['status'] == 'cancelled'
+        assert 'cancel-race' not in app_module.job_processes
+
+
 def test_cancel_finished_job_fails(isolated_app):
     with app_module.jobs_lock:
         app_module.jobs['done'] = {'status': 'finished'}
@@ -215,6 +232,20 @@ def test_history_get_file(isolated_app, tmp_path):
     resp = isolated_app.get('/files/history/test_vid.mp4')
     assert resp.status_code == 200
     assert resp.data == b'fakevideo'
+
+
+def test_history_get_disallows_part_file(isolated_app, tmp_path):
+    (tmp_path / 'partial_video.mp4.part').write_bytes(b'partial')
+    resp = isolated_app.get('/files/history/partial_video.mp4.part')
+    assert resp.status_code == 404
+
+
+def test_delete_disallows_part_file(isolated_app, tmp_path):
+    temp_file = tmp_path / 'partial_video.mp4.part'
+    temp_file.write_bytes(b'partial')
+    resp = isolated_app.delete('/files/history/partial_video.mp4.part')
+    assert resp.status_code == 404
+    assert temp_file.exists()
 
 
 def test_healthz_ok(isolated_app):

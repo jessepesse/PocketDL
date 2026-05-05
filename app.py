@@ -6,6 +6,7 @@ import uuid
 import time
 import logging
 import shutil
+from collections import deque
 from flask import Flask, request, jsonify, send_from_directory, send_file
 import yt_dlp
 
@@ -13,7 +14,7 @@ import yt_dlp
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", os.path.join(os.path.dirname(__file__), "downloads"))
 MIN_DISK_SPACE_GB = int(os.environ.get("MIN_DISK_SPACE_GB", 2))
 MAX_CONCURRENT_DOWNLOADS = int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", 3))
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
@@ -44,89 +45,111 @@ def kill_process_safely(process):
     except (ProcessLookupError, OSError):
         pass
 
-def run_download(url, job_id, format_type='video'):
-    job_output_template = os.path.join(DOWNLOAD_DIR, f'%(title)s_%(id)s.%(ext)s')
-    job_temp_prefix = os.path.join(DOWNLOAD_DIR, f'_job_{job_id}_')
+def build_download_command(url, format_type='video', fallback_video=False):
     cmd = [
         'yt-dlp',
         '--newline',
         '--no-playlist',
         '--print', 'TITLE:%(title)s',
         '--print', 'after_move:filepath',
-        '--output', job_output_template,
-        '--temp-filename-prefix', f'_job_{job_id}_',
+        '--output', os.path.join(DOWNLOAD_DIR, '%(title)s_%(id)s.%(ext)s'),
         '--embed-thumbnail',
         '--embed-metadata',
     ]
     if format_type == 'video':
-        cmd += ['--format', 'bestvideo+bestaudio/best', '--merge-output-format', 'mp4']
+        if fallback_video:
+            cmd += ['--format', 'best']
+        else:
+            cmd += ['--format', 'bestvideo+bestaudio/best', '--merge-output-format', 'mp4']
     else:
         cmd += ['--format', 'bestaudio/best', '--extract-audio',
                 '--audio-format', 'mp3', '--audio-quality', '192K']
     cmd += ['--', url]
+    return cmd
+
+
+def run_download(url, job_id, format_type='video'):
+    attempts = [False, True] if format_type == 'video' else [False]
 
     try:
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        with jobs_lock:
-            # FIX: Check if already cancelled before overwriting status
-            if job_id not in jobs or jobs[job_id]['status'] == 'cancelled':
-                kill_process_safely(process)
-                process.wait()
-                return
-            jobs[job_id]['status'] = 'downloading'
-            job_processes[job_id] = process
-
-        final_path = None
-        last_error = None
-
-        for line in process.stdout:
-            line = line.rstrip()
-            m = PROGRESS_RE.search(line)
-            if m:
-                with jobs_lock:
-                    if job_id in jobs:
-                        jobs[job_id]['progress'] = float(m.group(1))
-                        jobs[job_id]['speed'] = m.group(2)
-                        jobs[job_id]['eta'] = m.group(3)
-            elif line.startswith('TITLE:'):
-                # FIX: Update title from yt-dlp output
-                with jobs_lock:
-                    if job_id in jobs:
-                        jobs[job_id]['title'] = line[6:]
-            elif line.startswith(DOWNLOAD_DIR):
-                final_path = line
-            elif 'ERROR' in line:
-                last_error = line
-
-            cancelled = False
+        for idx, fallback_video in enumerate(attempts, start=1):
+            cmd = build_download_command(url, format_type, fallback_video=fallback_video)
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             with jobs_lock:
-                if job_id in jobs and jobs[job_id]['status'] == 'cancelled':
-                    job_processes.pop(job_id, None)  # FIX: clean up dict
-                    cancelled = True
-            if cancelled:
-                kill_process_safely(process)
-                process.wait()  # FIX: reap zombie, outside lock to avoid blocking
-                for f in os.listdir(DOWNLOAD_DIR):
-                    if f.startswith(f'_job_{job_id}_'):
-                        try: os.remove(os.path.join(DOWNLOAD_DIR, f))
-                        except: pass
-                return
+                # FIX: Check if already cancelled before overwriting status
+                if job_id not in jobs or jobs[job_id]['status'] == 'cancelled':
+                    kill_process_safely(process)
+                    process.wait()
+                    return
+                jobs[job_id]['status'] = 'downloading'
+                job_processes[job_id] = process
 
-        process.wait()
+            final_path = None
+            last_error = None
+            output_tail = deque(maxlen=25)
 
-        with jobs_lock:
-            job_processes.pop(job_id, None)
-            if job_id not in jobs or jobs[job_id]['status'] == 'cancelled':
-                return
-            if process.returncode == 0 and final_path:
-                jobs[job_id]['filename'] = os.path.basename(final_path)
-                jobs[job_id]['status'] = 'finished'
-                jobs[job_id]['progress'] = 100
-                jobs[job_id]['completed_at'] = time.time()
-            else:
-                jobs[job_id]['status'] = 'error'
-                jobs[job_id]['error'] = last_error or 'Download failed'
-                jobs[job_id]['completed_at'] = time.time()
+            for line in process.stdout:
+                line = line.rstrip()
+                if line:
+                    output_tail.append(line)
+                m = PROGRESS_RE.search(line)
+                if m:
+                    with jobs_lock:
+                        if job_id in jobs:
+                            jobs[job_id]['progress'] = float(m.group(1))
+                            jobs[job_id]['speed'] = m.group(2)
+                            jobs[job_id]['eta'] = m.group(3)
+                elif line.startswith('TITLE:'):
+                    # FIX: Update title from yt-dlp output
+                    with jobs_lock:
+                        if job_id in jobs:
+                            jobs[job_id]['title'] = line[6:]
+                elif line.startswith(DOWNLOAD_DIR):
+                    final_path = line
+                elif re.search(r'\berror\b', line, re.IGNORECASE):
+                    last_error = line
+
+                cancelled = False
+                with jobs_lock:
+                    if job_id in jobs and jobs[job_id]['status'] == 'cancelled':
+                        job_processes.pop(job_id, None)  # FIX: clean up dict
+                        cancelled = True
+                if cancelled:
+                    kill_process_safely(process)
+                    process.wait()  # FIX: reap zombie, outside lock to avoid blocking
+                    for f in os.listdir(DOWNLOAD_DIR):
+                        if f.startswith(f'_job_{job_id}_'):
+                            try: os.remove(os.path.join(DOWNLOAD_DIR, f))
+                            except: pass
+                    return
+
+            process.wait()
+
+            with jobs_lock:
+                job_processes.pop(job_id, None)
+                if job_id not in jobs or jobs[job_id]['status'] == 'cancelled':
+                    return
+                if process.returncode == 0 and final_path:
+                    jobs[job_id]['filename'] = os.path.basename(final_path)
+                    jobs[job_id]['status'] = 'finished'
+                    jobs[job_id]['progress'] = 100
+                    jobs[job_id]['completed_at'] = time.time()
+                    return
+
+            output_tail_text = " | ".join(output_tail) if output_tail else "<no output>"
+            logger.warning(
+                "yt-dlp attempt failed (job_id=%s attempt=%s/%s fallback=%s rc=%s url=%s tail=%s)",
+                job_id, idx, len(attempts), fallback_video, process.returncode, url, output_tail_text
+            )
+            if idx < len(attempts):
+                continue
+
+            with jobs_lock:
+                if job_id in jobs and jobs[job_id]['status'] != 'cancelled':
+                    jobs[job_id]['status'] = 'error'
+                    jobs[job_id]['error'] = last_error or (output_tail[-1] if output_tail else 'Download failed')
+                    jobs[job_id]['completed_at'] = time.time()
+            return
 
     except Exception as e:
         logger.error(f"Download error for job {job_id}: {str(e)}")
@@ -164,6 +187,8 @@ def start_download():
     format_type = data.get('format', 'video')
 
     if not url: return jsonify({"error": "No URL provided"}), 400
+    if format_type not in ('video', 'audio'):
+        return jsonify({"error": "Invalid format. Use 'video' or 'audio'."}), 400
 
     # Check concurrent limits and register job atomically
     job_id = str(uuid.uuid4())

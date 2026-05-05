@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-05-05
+
+### Fixed
+- Removed unsupported `yt-dlp` option `--temp-filename-prefix` that caused immediate download failures on newer `yt-dlp` versions
+- Improved download error diagnostics by logging failed attempt return code and recent output lines
+- Download status error message now falls back to the latest downloader output line when no explicit `ERROR:` line exists
+
+### Added
+- Input validation for `/download` `format` value; only `video` and `audio` are accepted
+- Video download fallback: if `bestvideo+bestaudio/best` fails, PocketDL retries once with `best`
+
 ## [1.3.1] - 2026-04-18
 
 ### Fixed
@@ -56,7 +67,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See git history for changes prior to v1.2.0.
 
-[Unreleased]: https://github.com/jessepesse/PocketDL/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/jessepesse/PocketDL/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/jessepesse/PocketDL/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/jessepesse/PocketDL/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/jessepesse/PocketDL/compare/v1.2.1...v1.3.0
 [1.2.0]: https://github.com/jessepesse/PocketDL/compare/v1.1.5...v1.2.0

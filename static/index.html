@@ -314,10 +314,6 @@
             button.textContent = 'Preparing...';
 
             try {
-                if (!window.isSecureContext) {
-                    throw new Error('Save to Photos needs HTTPS on iOS. Use Save to Device or open PocketDL through an HTTPS reverse proxy.');
-                }
-
                 if (!('share' in navigator) || !('canShare' in navigator)) {
                     throw new Error('Web Share file support is not available in this browser.');
                 }
@@ -336,7 +332,10 @@
                 await navigator.share(shareData);
             } catch (err) {
                 if (err.name !== 'AbortError') {
-                    alert(err.message || 'Could not open Photos sharing. Use Save to Device instead.');
+                    const hint = window.isSecureContext
+                        ? ''
+                        : ' If this keeps failing on iOS, try opening PocketDL over HTTPS.';
+                    alert((err.message || 'Could not open Photos sharing. Use Save to Device instead.') + hint);
                     console.error('Share error', err);
                 }
             } finally {

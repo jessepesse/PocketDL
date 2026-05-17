@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-05-17
+
+### Fixed
+- Let iOS attempt `Save to Photos` over HTTP instead of blocking before calling Web Share
+- Moved the HTTPS guidance into the fallback error message shown only after sharing fails
+
 ## [1.4.1] - 2026-05-17
 
 ### Fixed
@@ -91,7 +97,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See git history for changes prior to v1.2.0.
 
-[Unreleased]: https://github.com/jessepesse/PocketDL/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/jessepesse/PocketDL/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/jessepesse/PocketDL/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/jessepesse/PocketDL/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/jessepesse/PocketDL/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/jessepesse/PocketDL/compare/v1.3.1...v1.3.2

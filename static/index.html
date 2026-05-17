@@ -284,7 +284,11 @@
         let pollInterval = null;
 
         function isMobileLike() {
-            return window.matchMedia('(pointer: coarse)').matches;
+            return (
+                window.matchMedia('(pointer: coarse)').matches ||
+                navigator.maxTouchPoints > 1 ||
+                /iPad|iPhone|iPod/.test(navigator.userAgent)
+            );
         }
 
         function getMimeType(filename) {
@@ -300,8 +304,6 @@
             return (
                 isShareableMedia &&
                 isMobileLike() &&
-                'share' in navigator &&
-                'canShare' in navigator &&
                 typeof File !== 'undefined'
             );
         }
@@ -312,6 +314,14 @@
             button.textContent = 'Preparing...';
 
             try {
+                if (!window.isSecureContext) {
+                    throw new Error('Save to Photos needs HTTPS on iOS. Use Save to Device or open PocketDL through an HTTPS reverse proxy.');
+                }
+
+                if (!('share' in navigator) || !('canShare' in navigator)) {
+                    throw new Error('Web Share file support is not available in this browser.');
+                }
+
                 const response = await fetch(url);
                 if (!response.ok) throw new Error(`File download failed (${response.status})`);
 
@@ -326,13 +336,32 @@
                 await navigator.share(shareData);
             } catch (err) {
                 if (err.name !== 'AbortError') {
-                    alert('Could not open Photos sharing. Use Save to Device instead.');
+                    alert(err.message || 'Could not open Photos sharing. Use Save to Device instead.');
                     console.error('Share error', err);
                 }
             } finally {
                 button.disabled = false;
                 button.textContent = originalText;
             }
+        }
+
+        function createSaveToPhotosButton(url, filename, compact = false) {
+            if (!canShowSaveToPhotos(filename)) return null;
+
+            const photosBtn = document.createElement('button');
+            photosBtn.textContent = compact ? 'Photos' : 'Save to Photos';
+            photosBtn.onclick = () => shareFileToPhotos(url, filename, photosBtn);
+
+            if (compact) {
+                photosBtn.style.width = 'auto';
+                photosBtn.style.padding = '6px 12px';
+                photosBtn.style.fontSize = '12px';
+                photosBtn.style.marginTop = '0';
+                photosBtn.style.marginLeft = '6px';
+                photosBtn.style.backgroundColor = '#3d3d3d';
+            }
+
+            return photosBtn;
         }
 
         async function fetchHistory() {
@@ -384,6 +413,12 @@
                             window.open(`/files/history/${encodeURIComponent(file.filename)}`, '_blank');
                         };
 
+                        const photosBtn = createSaveToPhotosButton(
+                            `/files/history/${encodeURIComponent(file.filename)}`,
+                            file.filename,
+                            true
+                        );
+
                         const delBtn = document.createElement('button');
                         delBtn.textContent = '×';
                         delBtn.title = 'Delete file';
@@ -401,6 +436,7 @@
 
                         item.appendChild(info);
                         item.appendChild(dlBtn);
+                        if (photosBtn) item.appendChild(photosBtn);
                         item.appendChild(delBtn);
                         historyList.appendChild(item);
                     });
@@ -491,10 +527,8 @@
                         link.target = '_blank';
                         downloadAction.appendChild(link);
 
-                        if (canShowSaveToPhotos(data.filename)) {
-                            const photosBtn = document.createElement('button');
-                            photosBtn.textContent = 'Save to Photos';
-                            photosBtn.onclick = () => shareFileToPhotos(link.href, data.filename, photosBtn);
+                        const photosBtn = createSaveToPhotosButton(link.href, data.filename);
+                        if (photosBtn) {
                             downloadAction.appendChild(photosBtn);
                         }
 

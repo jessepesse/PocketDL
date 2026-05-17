@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-17
+
+### Added
+- Added a mobile-only `Save to Photos` action for completed MP4 downloads using the Web Share API
+
+### Changed
+- Consolidated `yt-dlp` dependencies into `requirements.txt` so local, CI, and Docker installs use the same dependency list
+- Docker builds now install dependencies from `requirements.txt` only
+
+### Removed
+- Removed the unused `/info` endpoint and related tests
+- Removed obsolete cancel-time cleanup for the old `_job_<id>_` temporary filename prefix
+- Removed unused `send_file` import
+
+### CI
+- Added a pytest gate before Docker image build and push in the release workflow
+
 ## [1.3.2] - 2026-05-05
 
 ### Fixed
@@ -67,7 +84,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See git history for changes prior to v1.2.0.
 
-[Unreleased]: https://github.com/jessepesse/PocketDL/compare/v1.3.2...HEAD
+[Unreleased]: https://github.com/jessepesse/PocketDL/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/jessepesse/PocketDL/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/jessepesse/PocketDL/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/jessepesse/PocketDL/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/jessepesse/PocketDL/compare/v1.2.1...v1.3.0

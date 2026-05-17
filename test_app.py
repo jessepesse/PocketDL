@@ -41,20 +41,6 @@ def test_index_serves_html(isolated_app):
     assert b'html' in resp.data.lower()
 
 
-# --- /info ---
-
-def test_info_missing_url(isolated_app):
-    resp = isolated_app.get('/info')
-    assert resp.status_code == 400
-    assert 'error' in resp.get_json()
-
-
-def test_info_invalid_url(isolated_app):
-    resp = isolated_app.get('/info?url=not-a-real-url')
-    assert resp.status_code == 500
-    assert 'error' in resp.get_json()
-
-
 # --- /download validation ---
 
 def test_download_missing_url(isolated_app):
@@ -260,8 +246,8 @@ def test_healthz_ok(isolated_app):
     assert resp.get_json()['status'] == 'ok'
 
 
-def test_cancel_only_removes_own_temp_files(isolated_app, tmp_path):
-    # Other job's temp file should survive cancellation of job A
+def test_cancel_does_not_delete_download_dir_files(isolated_app, tmp_path):
+    # Cancellation should only stop the active process; yt-dlp owns temp files.
     other_temp = tmp_path / '_job_other-job_video.mp4.part'
     other_temp.write_bytes(b'other')
 
@@ -271,7 +257,7 @@ def test_cancel_only_removes_own_temp_files(isolated_app, tmp_path):
         app_module.job_processes['cancel-me'] = mock_proc
 
     isolated_app.post('/cancel/cancel-me')
-    assert other_temp.exists(), "Cancel should not delete other jobs' temp files"
+    assert other_temp.exists(), "Cancel should not delete files from the download directory"
 
 
 def test_delete_path_traversal_blocked(isolated_app, tmp_path):

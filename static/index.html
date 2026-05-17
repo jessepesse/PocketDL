@@ -283,6 +283,58 @@
         let currentJobId = null;
         let pollInterval = null;
 
+        function isMobileLike() {
+            return window.matchMedia('(pointer: coarse)').matches;
+        }
+
+        function getMimeType(filename) {
+            const lower = filename.toLowerCase();
+            if (lower.endsWith('.mp4')) return 'video/mp4';
+            if (lower.endsWith('.mp3')) return 'audio/mpeg';
+            return 'application/octet-stream';
+        }
+
+        function canShowSaveToPhotos(filename) {
+            const lower = filename.toLowerCase();
+            const isShareableMedia = lower.endsWith('.mp4');
+            return (
+                isShareableMedia &&
+                isMobileLike() &&
+                'share' in navigator &&
+                'canShare' in navigator &&
+                typeof File !== 'undefined'
+            );
+        }
+
+        async function shareFileToPhotos(url, filename, button) {
+            const originalText = button.textContent;
+            button.disabled = true;
+            button.textContent = 'Preparing...';
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`File download failed (${response.status})`);
+
+                const blob = await response.blob();
+                const file = new File([blob], filename, { type: getMimeType(filename) });
+                const shareData = { files: [file], title: filename };
+
+                if (!navigator.canShare(shareData)) {
+                    throw new Error('File sharing is not supported for this video.');
+                }
+
+                await navigator.share(shareData);
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    alert('Could not open Photos sharing. Use Save to Device instead.');
+                    console.error('Share error', err);
+                }
+            } finally {
+                button.disabled = false;
+                button.textContent = originalText;
+            }
+        }
+
         async function fetchHistory() {
             try {
                 const res = await fetch('/history');
@@ -438,6 +490,14 @@
                         link.textContent = 'Save to Device';
                         link.target = '_blank';
                         downloadAction.appendChild(link);
+
+                        if (canShowSaveToPhotos(data.filename)) {
+                            const photosBtn = document.createElement('button');
+                            photosBtn.textContent = 'Save to Photos';
+                            photosBtn.onclick = () => shareFileToPhotos(link.href, data.filename, photosBtn);
+                            downloadAction.appendChild(photosBtn);
+                        }
+
                         currentJobId = null;
                         fetchHistory();
                     } else if (data.status === 'cancelled') {

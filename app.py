@@ -7,14 +7,14 @@ import time
 import logging
 import shutil
 from collections import deque
-from flask import Flask, request, jsonify, send_from_directory, send_file
+from flask import Flask, request, jsonify, send_from_directory
 import yt_dlp
 
 # Configuration
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", os.path.join(os.path.dirname(__file__), "downloads"))
 MIN_DISK_SPACE_GB = int(os.environ.get("MIN_DISK_SPACE_GB", 2))
 MAX_CONCURRENT_DOWNLOADS = int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", 3))
-APP_VERSION = "1.3.2"
+APP_VERSION = "1.4.0"
 
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
@@ -117,10 +117,6 @@ def run_download(url, job_id, format_type='video'):
                 if cancelled:
                     kill_process_safely(process)
                     process.wait()  # FIX: reap zombie, outside lock to avoid blocking
-                    for f in os.listdir(DOWNLOAD_DIR):
-                        if f.startswith(f'_job_{job_id}_'):
-                            try: os.remove(os.path.join(DOWNLOAD_DIR, f))
-                            except: pass
                     return
 
             process.wait()
@@ -159,18 +155,6 @@ def run_download(url, job_id, format_type='video'):
                 jobs[job_id]['status'] = 'error'
                 jobs[job_id]['error'] = 'Download failed'  # FIX: don't expose internals
                 jobs[job_id]['completed_at'] = time.time()
-
-@app.route('/info')
-def get_info():
-    url = request.args.get('url')
-    if not url: return jsonify({"error": "No URL provided"}), 400
-    try:
-        with yt_dlp.YoutubeDL({'quiet': True, 'noplaylist': True}) as ydl:
-            info = ydl.extract_info(url, download=False)
-            return jsonify({"title": info.get('title'), "thumbnail": info.get('thumbnail')})
-    except Exception as e:
-        logger.error(f"Info fetch error for {url}: {str(e)}")
-        return jsonify({"error": "Failed to fetch video info"}), 500
 
 @app.route('/download', methods=['POST'])
 def start_download():

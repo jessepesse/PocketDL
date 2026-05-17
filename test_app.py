@@ -55,6 +55,12 @@ def test_download_invalid_format(isolated_app):
     assert 'invalid format' in resp.get_json()['error'].lower()
 
 
+def test_download_invalid_quality(isolated_app):
+    resp = isolated_app.post('/download', json={'url': 'https://example.com', 'quality': 'dvd'})
+    assert resp.status_code == 400
+    assert 'invalid quality' in resp.get_json()['error'].lower()
+
+
 def test_download_invalid_json(isolated_app):
     resp = isolated_app.post('/download', data='not-json', content_type='text/plain')
     assert resp.status_code == 400
@@ -359,13 +365,49 @@ def test_download_builds_correct_video_command(isolated_app):
         time.sleep(0.3)
 
         cmd = mock_popen.call_args[0][0]
+        fmt = cmd[cmd.index('--format') + 1]
         assert '--embed-thumbnail' in cmd
         assert '--embed-metadata' in cmd
         assert '--merge-output-format' in cmd
+        assert fmt == app_module.VIDEO_FORMATS['best']
         assert 'mp4' in cmd
         # URL must come after -- separator to prevent argument injection
         separator_idx = cmd.index('--')
         assert cmd[separator_idx + 1] == 'https://example.com'
+
+
+def test_download_builds_ios_video_command(isolated_app):
+    with patch('subprocess.Popen') as mock_popen:
+        proc = MagicMock()
+        proc.stdout = iter([f'{app_module.DOWNLOAD_DIR}/video.mp4\n'])
+        proc.wait.return_value = None
+        proc.returncode = 0
+        mock_popen.return_value = proc
+
+        isolated_app.post('/download', json={'url': 'https://example.com', 'format': 'video', 'quality': 'ios'})
+        time.sleep(0.3)
+
+        cmd = mock_popen.call_args[0][0]
+        fmt = cmd[cmd.index('--format') + 1]
+        assert fmt == app_module.VIDEO_FORMATS['ios']
+        assert '--merge-output-format' in cmd
+
+
+def test_download_builds_android_video_command(isolated_app):
+    with patch('subprocess.Popen') as mock_popen:
+        proc = MagicMock()
+        proc.stdout = iter([f'{app_module.DOWNLOAD_DIR}/video.mp4\n'])
+        proc.wait.return_value = None
+        proc.returncode = 0
+        mock_popen.return_value = proc
+
+        isolated_app.post('/download', json={'url': 'https://example.com', 'format': 'video', 'quality': 'android'})
+        time.sleep(0.3)
+
+        cmd = mock_popen.call_args[0][0]
+        fmt = cmd[cmd.index('--format') + 1]
+        assert fmt == app_module.VIDEO_FORMATS['android']
+        assert '--merge-output-format' in cmd
 
 
 def test_download_builds_correct_audio_command(isolated_app):
@@ -413,7 +455,8 @@ def test_video_download_fallback_to_best_format(isolated_app):
 
         first_cmd = mock_popen.call_args_list[0][0][0]
         second_cmd = mock_popen.call_args_list[1][0][0]
-        assert 'bestvideo+bestaudio/best' in first_cmd
+        first_format = first_cmd[first_cmd.index('--format') + 1]
+        assert first_format == app_module.VIDEO_FORMATS['best']
         assert '--merge-output-format' in first_cmd
         assert 'best' in second_cmd
         assert '--merge-output-format' not in second_cmd

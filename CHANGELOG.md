@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-17
+
+### Added
+- Added a video quality selector with `Best`, `iPhone`, and `Android` options
+- Automatically defaults the quality selector to `iPhone` on iOS, `Android` on Android, and `Best` elsewhere
+- Added backend validation and `yt-dlp` format handling for the new `quality` download field
+
+### Changed
+- `Save to Photos` now restores the button state after opening the native share sheet, even if iOS keeps the share promise pending
+- iPhone quality downloads now prefer iOS-compatible MP4/H.264 video with M4A audio
+
 ## [1.4.2] - 2026-05-17
 
 ### Fixed
@@ -97,7 +108,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See git history for changes prior to v1.2.0.
 
-[Unreleased]: https://github.com/jessepesse/PocketDL/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/jessepesse/PocketDL/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/jessepesse/PocketDL/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/jessepesse/PocketDL/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/jessepesse/PocketDL/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/jessepesse/PocketDL/compare/v1.3.2...v1.4.0

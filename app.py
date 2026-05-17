@@ -14,7 +14,7 @@ import yt_dlp
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", os.path.join(os.path.dirname(__file__), "downloads"))
 MIN_DISK_SPACE_GB = int(os.environ.get("MIN_DISK_SPACE_GB", 2))
 MAX_CONCURRENT_DOWNLOADS = int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", 3))
-APP_VERSION = "1.4.2"
+APP_VERSION = "1.5.0"
 
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
@@ -30,6 +30,11 @@ job_processes = {}  # {job_id: Popen} — separate dict to avoid JSON serializat
 
 PROGRESS_RE = re.compile(r'\[download\]\s+([\d.]+)%.*?at\s+(\S+)\s+ETA\s+(\S+)')
 ALLOWED_HISTORY_EXTENSIONS = {'.mp4', '.mp3'}
+VIDEO_FORMATS = {
+    'best': 'bestvideo+bestaudio/best',
+    'ios': 'bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+    'android': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
+}
 
 
 def is_allowed_history_filename(filename):
@@ -45,7 +50,7 @@ def kill_process_safely(process):
     except (ProcessLookupError, OSError):
         pass
 
-def build_download_command(url, format_type='video', fallback_video=False):
+def build_download_command(url, format_type='video', quality='best', fallback_video=False):
     cmd = [
         'yt-dlp',
         '--newline',
@@ -60,7 +65,7 @@ def build_download_command(url, format_type='video', fallback_video=False):
         if fallback_video:
             cmd += ['--format', 'best']
         else:
-            cmd += ['--format', 'bestvideo+bestaudio/best', '--merge-output-format', 'mp4']
+            cmd += ['--format', VIDEO_FORMATS.get(quality, VIDEO_FORMATS['best']), '--merge-output-format', 'mp4']
     else:
         cmd += ['--format', 'bestaudio/best', '--extract-audio',
                 '--audio-format', 'mp3', '--audio-quality', '192K']
@@ -68,12 +73,12 @@ def build_download_command(url, format_type='video', fallback_video=False):
     return cmd
 
 
-def run_download(url, job_id, format_type='video'):
+def run_download(url, job_id, format_type='video', quality='best'):
     attempts = [False, True] if format_type == 'video' else [False]
 
     try:
         for idx, fallback_video in enumerate(attempts, start=1):
-            cmd = build_download_command(url, format_type, fallback_video=fallback_video)
+            cmd = build_download_command(url, format_type, quality=quality, fallback_video=fallback_video)
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             with jobs_lock:
                 # FIX: Check if already cancelled before overwriting status
@@ -169,10 +174,13 @@ def start_download():
         return jsonify({"error": "Invalid or missing JSON body"}), 400
     url = data.get('url')
     format_type = data.get('format', 'video')
+    quality = data.get('quality', 'best')
 
     if not url: return jsonify({"error": "No URL provided"}), 400
     if format_type not in ('video', 'audio'):
         return jsonify({"error": "Invalid format. Use 'video' or 'audio'."}), 400
+    if quality not in VIDEO_FORMATS:
+        return jsonify({"error": "Invalid quality. Use 'best', 'ios', or 'android'."}), 400
 
     # Check concurrent limits and register job atomically
     job_id = str(uuid.uuid4())
@@ -194,7 +202,7 @@ def start_download():
             'error': ''
         }
     
-    threading.Thread(target=run_download, args=(url, job_id, format_type), daemon=True).start()
+    threading.Thread(target=run_download, args=(url, job_id, format_type, quality), daemon=True).start()
     return jsonify({"job_id": job_id})
 
 @app.route('/cancel/<job_id>', methods=['POST'])

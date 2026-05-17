@@ -242,6 +242,24 @@
             </div>
         </div>
 
+        <div class="form-group" id="quality-group">
+            <label>Quality</label>
+            <div class="radio-group">
+                <div class="radio-option">
+                    <input type="radio" name="quality" value="best" id="quality-best" checked>
+                    <label for="quality-best" class="radio-label">Best</label>
+                </div>
+                <div class="radio-option">
+                    <input type="radio" name="quality" value="ios" id="quality-ios">
+                    <label for="quality-ios" class="radio-label">iPhone</label>
+                </div>
+                <div class="radio-option">
+                    <input type="radio" name="quality" value="android" id="quality-android">
+                    <label for="quality-android" class="radio-label">Android</label>
+                </div>
+            </div>
+        </div>
+
         <button id="downloadBtn">Start Download</button>
 
         <div id="status-container">
@@ -279,6 +297,7 @@
         const cancelBtn = document.getElementById('cancelBtn');
         const historyContainer = document.getElementById('history-container');
         const historyList = document.getElementById('history-list');
+        const qualityGroup = document.getElementById('quality-group');
 
         let currentJobId = null;
         let pollInterval = null;
@@ -296,6 +315,23 @@
             if (lower.endsWith('.mp4')) return 'video/mp4';
             if (lower.endsWith('.mp3')) return 'audio/mpeg';
             return 'application/octet-stream';
+        }
+
+        function getPreferredVideoQuality() {
+            const ua = navigator.userAgent;
+            if (/iPad|iPhone|iPod/.test(ua)) return 'ios';
+            if (/Android/.test(ua)) return 'android';
+            return 'best';
+        }
+
+        function setSelectedRadio(name, value) {
+            const input = document.querySelector(`input[name="${name}"][value="${value}"]`);
+            if (input) input.checked = true;
+        }
+
+        function updateQualityVisibility() {
+            const format = document.querySelector('input[name="format"]:checked').value;
+            qualityGroup.style.display = format === 'video' ? 'block' : 'none';
         }
 
         function canShowSaveToPhotos(filename) {
@@ -329,7 +365,16 @@
                     throw new Error('File sharing is not supported for this video.');
                 }
 
-                await navigator.share(shareData);
+                const resetTimer = setTimeout(() => {
+                    button.disabled = false;
+                    button.textContent = originalText;
+                }, 3000);
+
+                try {
+                    await navigator.share(shareData);
+                } finally {
+                    clearTimeout(resetTimer);
+                }
             } catch (err) {
                 if (err.name !== 'AbortError') {
                     const hint = window.isSecureContext
@@ -448,6 +493,7 @@
         async function startDownload() {
             const url = urlInput.value.trim();
             const format = document.querySelector('input[name="format"]:checked').value;
+            const quality = document.querySelector('input[name="quality"]:checked').value;
             if (!url) return alert("Please enter a URL!");
 
             statusContainer.style.display = 'block';
@@ -464,7 +510,7 @@
                 const res = await fetch('/download', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url, format })
+                    body: JSON.stringify({ url, format, quality })
                 });
                 const data = await res.json();
                 if (res.ok) {
@@ -563,6 +609,11 @@
         };
 
         downloadBtn.addEventListener('click', startDownload);
+        document.querySelectorAll('input[name="format"]').forEach(input => {
+            input.addEventListener('change', updateQualityVisibility);
+        });
+        setSelectedRadio('quality', getPreferredVideoQuality());
+        updateQualityVisibility();
         fetchHistory();
 
         fetch('/version').then(r => r.json()).then(v => {

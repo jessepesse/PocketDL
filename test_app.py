@@ -61,6 +61,22 @@ def test_download_invalid_quality(isolated_app):
     assert 'invalid quality' in resp.get_json()['error'].lower()
 
 
+def test_download_custom_quality_requires_selector(isolated_app):
+    resp = isolated_app.post('/download', json={'url': 'https://example.com', 'quality': 'custom'})
+    assert resp.status_code == 400
+    assert 'custom format' in resp.get_json()['error'].lower()
+
+
+def test_download_custom_quality_rejects_control_characters(isolated_app):
+    resp = isolated_app.post('/download', json={
+        'url': 'https://example.com',
+        'quality': 'custom',
+        'custom_format': 'best\n--exec echo bad',
+    })
+    assert resp.status_code == 400
+    assert 'custom format' in resp.get_json()['error'].lower()
+
+
 def test_download_invalid_json(isolated_app):
     resp = isolated_app.post('/download', data='not-json', content_type='text/plain')
     assert resp.status_code == 400
@@ -326,6 +342,7 @@ def test_successful_download_sets_finished(isolated_app, tmp_path):
         data = resp.get_json()
         assert data['status'] == 'finished'
         assert data['filename'] == 'My Video_abc123.mp4'
+        assert data['filesize_mb'] == 0.0
         assert data['progress'] == 100
         assert data['title'] == 'My Video'
 
@@ -407,7 +424,34 @@ def test_download_builds_android_video_command(isolated_app):
         cmd = mock_popen.call_args[0][0]
         fmt = cmd[cmd.index('--format') + 1]
         assert fmt == app_module.VIDEO_FORMATS['android']
+        assert '[height<=1080]' not in fmt
+        assert fmt == app_module.VIDEO_FORMATS['best']
         assert '--merge-output-format' in cmd
+
+
+def test_download_builds_custom_video_command(isolated_app):
+    custom_format = 'bestvideo[height<=720]+bestaudio/best'
+    with patch('subprocess.Popen') as mock_popen:
+        proc = MagicMock()
+        proc.stdout = iter([f'{app_module.DOWNLOAD_DIR}/video.mp4\n'])
+        proc.wait.return_value = None
+        proc.returncode = 0
+        mock_popen.return_value = proc
+
+        isolated_app.post('/download', json={
+            'url': 'https://example.com',
+            'format': 'video',
+            'quality': 'custom',
+            'custom_format': custom_format,
+        })
+        time.sleep(0.3)
+
+        cmd = mock_popen.call_args[0][0]
+        fmt = cmd[cmd.index('--format') + 1]
+        assert fmt == custom_format
+        assert '--merge-output-format' in cmd
+        separator_idx = cmd.index('--')
+        assert cmd[separator_idx + 1] == 'https://example.com'
 
 
 def test_download_builds_correct_audio_command(isolated_app):
@@ -432,6 +476,10 @@ def test_download_builds_correct_audio_command(isolated_app):
 
 
 def test_video_download_fallback_to_best_format(isolated_app):
+    fallback_file = os.path.join(app_module.DOWNLOAD_DIR, 'video.mp4')
+    with open(fallback_file, 'wb') as f:
+        f.write(b'fakevideo')
+
     with patch('subprocess.Popen') as mock_popen:
         proc_primary = MagicMock()
         proc_primary.stdout = iter(['ERROR: Requested format is not available\n'])
@@ -439,7 +487,7 @@ def test_video_download_fallback_to_best_format(isolated_app):
         proc_primary.returncode = 1
 
         proc_fallback = MagicMock()
-        proc_fallback.stdout = iter([f'{app_module.DOWNLOAD_DIR}/video.mp4\n'])
+        proc_fallback.stdout = iter([f'{fallback_file}\n'])
         proc_fallback.wait.return_value = None
         proc_fallback.returncode = 0
 

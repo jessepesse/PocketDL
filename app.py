@@ -14,7 +14,7 @@ import yt_dlp
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", os.path.join(os.path.dirname(__file__), "downloads"))
 MIN_DISK_SPACE_GB = int(os.environ.get("MIN_DISK_SPACE_GB", 2))
 MAX_CONCURRENT_DOWNLOADS = int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", 3))
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.6.0"
 
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
@@ -33,8 +33,10 @@ ALLOWED_HISTORY_EXTENSIONS = {'.mp4', '.mp3'}
 VIDEO_FORMATS = {
     'best': 'bestvideo+bestaudio/best',
     'ios': 'bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-    'android': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
+    'android': 'bestvideo+bestaudio/best',
 }
+VIDEO_QUALITIES = set(VIDEO_FORMATS) | {'custom'}
+MAX_CUSTOM_FORMAT_LENGTH = 300
 
 
 def is_allowed_history_filename(filename):
@@ -50,7 +52,21 @@ def kill_process_safely(process):
     except (ProcessLookupError, OSError):
         pass
 
-def build_download_command(url, format_type='video', quality='best', fallback_video=False):
+def resolve_video_format(quality='best', custom_format=''):
+    if quality == 'custom':
+        return custom_format
+    return VIDEO_FORMATS.get(quality, VIDEO_FORMATS['best'])
+
+
+def is_valid_custom_format(custom_format):
+    return (
+        isinstance(custom_format, str)
+        and 0 < len(custom_format) <= MAX_CUSTOM_FORMAT_LENGTH
+        and not any(ch in custom_format for ch in ('\x00', '\n', '\r'))
+    )
+
+
+def build_download_command(url, format_type='video', quality='best', custom_format='', fallback_video=False):
     cmd = [
         'yt-dlp',
         '--newline',
@@ -65,7 +81,7 @@ def build_download_command(url, format_type='video', quality='best', fallback_vi
         if fallback_video:
             cmd += ['--format', 'best']
         else:
-            cmd += ['--format', VIDEO_FORMATS.get(quality, VIDEO_FORMATS['best']), '--merge-output-format', 'mp4']
+            cmd += ['--format', resolve_video_format(quality, custom_format), '--merge-output-format', 'mp4']
     else:
         cmd += ['--format', 'bestaudio/best', '--extract-audio',
                 '--audio-format', 'mp3', '--audio-quality', '192K']
@@ -73,12 +89,12 @@ def build_download_command(url, format_type='video', quality='best', fallback_vi
     return cmd
 
 
-def run_download(url, job_id, format_type='video', quality='best'):
+def run_download(url, job_id, format_type='video', quality='best', custom_format=''):
     attempts = [False, True] if format_type == 'video' else [False]
 
     try:
         for idx, fallback_video in enumerate(attempts, start=1):
-            cmd = build_download_command(url, format_type, quality=quality, fallback_video=fallback_video)
+            cmd = build_download_command(url, format_type, quality=quality, custom_format=custom_format, fallback_video=fallback_video)
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             with jobs_lock:
                 # FIX: Check if already cancelled before overwriting status
@@ -132,6 +148,10 @@ def run_download(url, job_id, format_type='video', quality='best'):
                     return
                 if process.returncode == 0 and final_path:
                     jobs[job_id]['filename'] = os.path.basename(final_path)
+                    try:
+                        jobs[job_id]['filesize_mb'] = round(os.path.getsize(final_path) / (1024 * 1024), 2)
+                    except OSError:
+                        jobs[job_id]['filesize_mb'] = None
                     jobs[job_id]['status'] = 'finished'
                     jobs[job_id]['progress'] = 100
                     jobs[job_id]['completed_at'] = time.time()
@@ -175,12 +195,15 @@ def start_download():
     url = data.get('url')
     format_type = data.get('format', 'video')
     quality = data.get('quality', 'best')
+    custom_format = data.get('custom_format', '').strip()
 
     if not url: return jsonify({"error": "No URL provided"}), 400
     if format_type not in ('video', 'audio'):
         return jsonify({"error": "Invalid format. Use 'video' or 'audio'."}), 400
-    if quality not in VIDEO_FORMATS:
-        return jsonify({"error": "Invalid quality. Use 'best', 'ios', or 'android'."}), 400
+    if quality not in VIDEO_QUALITIES:
+        return jsonify({"error": "Invalid quality. Use 'best', 'ios', 'android', or 'custom'."}), 400
+    if format_type == 'video' and quality == 'custom' and not is_valid_custom_format(custom_format):
+        return jsonify({"error": "Invalid custom format selector."}), 400
 
     # Check concurrent limits and register job atomically
     job_id = str(uuid.uuid4())
@@ -202,7 +225,7 @@ def start_download():
             'error': ''
         }
     
-    threading.Thread(target=run_download, args=(url, job_id, format_type, quality), daemon=True).start()
+    threading.Thread(target=run_download, args=(url, job_id, format_type, quality, custom_format), daemon=True).start()
     return jsonify({"job_id": job_id})
 
 @app.route('/cancel/<job_id>', methods=['POST'])

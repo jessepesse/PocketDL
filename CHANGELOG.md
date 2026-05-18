@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-05-18
+
+### Added
+- Added `AGENTS.md` contributor guidelines for repository structure, development commands, testing, and release expectations
+- Added a `Custom` video quality option for advanced `yt-dlp` format selectors
+- Added backend validation for custom format selectors
+- Added completed download file size metadata for UI decisions
+
+### Changed
+- Android quality now uses the same best available video format as the default `Best` option
+- `Save to Photos` is hidden for videos larger than 150 MB to avoid loading large files into mobile browser memory
+- Improved the iOS share fallback message when sharing is cancelled or blocked
+
 ## [1.5.0] - 2026-05-17
 
 ### Added
@@ -108,7 +121,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See git history for changes prior to v1.2.0.
 
-[Unreleased]: https://github.com/jessepesse/PocketDL/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/jessepesse/PocketDL/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/jessepesse/PocketDL/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/jessepesse/PocketDL/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/jessepesse/PocketDL/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/jessepesse/PocketDL/compare/v1.4.0...v1.4.1

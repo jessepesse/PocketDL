@@ -257,7 +257,12 @@
                     <input type="radio" name="quality" value="android" id="quality-android">
                     <label for="quality-android" class="radio-label">Android</label>
                 </div>
+                <div class="radio-option">
+                    <input type="radio" name="quality" value="custom" id="quality-custom">
+                    <label for="quality-custom" class="radio-label">Custom</label>
+                </div>
             </div>
+            <input type="text" id="custom-format" placeholder="yt-dlp format selector" autocomplete="off" style="display:none; margin-top:12px;">
         </div>
 
         <button id="downloadBtn">Start Download</button>
@@ -298,9 +303,11 @@
         const historyContainer = document.getElementById('history-container');
         const historyList = document.getElementById('history-list');
         const qualityGroup = document.getElementById('quality-group');
+        const customFormatInput = document.getElementById('custom-format');
 
         let currentJobId = null;
         let pollInterval = null;
+        const MAX_SHARE_FILE_MB = 150;
 
         function isMobileLike() {
             return (
@@ -331,14 +338,18 @@
 
         function updateQualityVisibility() {
             const format = document.querySelector('input[name="format"]:checked').value;
+            const quality = document.querySelector('input[name="quality"]:checked').value;
             qualityGroup.style.display = format === 'video' ? 'block' : 'none';
+            customFormatInput.style.display = format === 'video' && quality === 'custom' ? 'block' : 'none';
         }
 
-        function canShowSaveToPhotos(filename) {
+        function canShowSaveToPhotos(filename, sizeMb = null) {
             const lower = filename.toLowerCase();
             const isShareableMedia = lower.endsWith('.mp4');
+            const isSmallEnough = sizeMb === null || sizeMb <= MAX_SHARE_FILE_MB;
             return (
                 isShareableMedia &&
+                isSmallEnough &&
                 isMobileLike() &&
                 typeof File !== 'undefined'
             );
@@ -380,7 +391,11 @@
                     const hint = window.isSecureContext
                         ? ''
                         : ' If this keeps failing on iOS, try opening PocketDL over HTTPS.';
-                    alert((err.message || 'Could not open Photos sharing. Use Save to Device instead.') + hint);
+                    const blockedByPlatform = err.name === 'NotAllowedError' || /not allowed|denied permission/i.test(err.message || '');
+                    const message = blockedByPlatform
+                        ? 'Sharing was cancelled or blocked by iOS. Try again, or use Save to Device.'
+                        : (err.message || 'Could not open Photos sharing. Use Save to Device instead.');
+                    alert(message + hint);
                     console.error('Share error', err);
                 }
             } finally {
@@ -389,8 +404,8 @@
             }
         }
 
-        function createSaveToPhotosButton(url, filename, compact = false) {
-            if (!canShowSaveToPhotos(filename)) return null;
+        function createSaveToPhotosButton(url, filename, compact = false, sizeMb = null) {
+            if (!canShowSaveToPhotos(filename, sizeMb)) return null;
 
             const photosBtn = document.createElement('button');
             photosBtn.textContent = compact ? 'Photos' : 'Save to Photos';
@@ -460,7 +475,8 @@
                         const photosBtn = createSaveToPhotosButton(
                             `/files/history/${encodeURIComponent(file.filename)}`,
                             file.filename,
-                            true
+                            true,
+                            file.size
                         );
 
                         const delBtn = document.createElement('button');
@@ -494,7 +510,11 @@
             const url = urlInput.value.trim();
             const format = document.querySelector('input[name="format"]:checked').value;
             const quality = document.querySelector('input[name="quality"]:checked').value;
+            const customFormat = customFormatInput.value.trim();
             if (!url) return alert("Please enter a URL!");
+            if (format === 'video' && quality === 'custom' && !customFormat) {
+                return alert("Please enter a yt-dlp format selector.");
+            }
 
             statusContainer.style.display = 'block';
             progressFill.style.width = '0%';
@@ -510,7 +530,7 @@
                 const res = await fetch('/download', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url, format, quality })
+                    body: JSON.stringify({ url, format, quality, custom_format: customFormat })
                 });
                 const data = await res.json();
                 if (res.ok) {
@@ -572,7 +592,7 @@
                         link.target = '_blank';
                         downloadAction.appendChild(link);
 
-                        const photosBtn = createSaveToPhotosButton(link.href, data.filename);
+                        const photosBtn = createSaveToPhotosButton(link.href, data.filename, false, data.filesize_mb);
                         if (photosBtn) {
                             downloadAction.appendChild(photosBtn);
                         }
@@ -610,6 +630,9 @@
 
         downloadBtn.addEventListener('click', startDownload);
         document.querySelectorAll('input[name="format"]').forEach(input => {
+            input.addEventListener('change', updateQualityVisibility);
+        });
+        document.querySelectorAll('input[name="quality"]').forEach(input => {
             input.addEventListener('change', updateQualityVisibility);
         });
         setSelectedRadio('quality', getPreferredVideoQuality());

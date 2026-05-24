@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-05-24
+
+### Fixed
+- Restored live download progress updates when using `yt-dlp --print` by enabling progress output explicitly
+- Switched progress parsing to a stable `yt-dlp --progress-template` line while keeping legacy progress output support
+
 ## [1.6.0] - 2026-05-18
 
 ### Added
@@ -121,7 +127,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See git history for changes prior to v1.2.0.
 
-[Unreleased]: https://github.com/jessepesse/PocketDL/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/jessepesse/PocketDL/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/jessepesse/PocketDL/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/jessepesse/PocketDL/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/jessepesse/PocketDL/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/jessepesse/PocketDL/compare/v1.4.1...v1.4.2

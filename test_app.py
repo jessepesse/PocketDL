@@ -385,6 +385,9 @@ def test_download_builds_correct_video_command(isolated_app):
         fmt = cmd[cmd.index('--format') + 1]
         assert '--embed-thumbnail' in cmd
         assert '--embed-metadata' in cmd
+        assert '--progress' in cmd
+        assert '--progress-template' in cmd
+        assert app_module.PROGRESS_TEMPLATE in cmd
         assert '--merge-output-format' in cmd
         assert fmt == app_module.VIDEO_FORMATS['best']
         assert 'mp4' in cmd
@@ -519,3 +522,13 @@ def test_progress_regex():
     assert m.group(1) == '75.3'
     assert m.group(2) == '5.2MiB/s'
     assert m.group(3) == '00:03'
+
+
+def test_parse_progress_template_line():
+    line = 'PDL_PROGRESS: 42.9%|   1.54MiB/s|Unknown'
+    assert app_module.parse_progress_line(line) == (42.9, '1.54MiB/s', 'Unknown')
+
+
+def test_parse_progress_line_keeps_legacy_output_support():
+    line = '[download]  75.3% of 100MiB at 5.2MiB/s ETA 00:03'
+    assert app_module.parse_progress_line(line) == (75.3, '5.2MiB/s', '00:03')

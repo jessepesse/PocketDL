@@ -14,7 +14,7 @@ import yt_dlp
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", os.path.join(os.path.dirname(__file__), "downloads"))
 MIN_DISK_SPACE_GB = int(os.environ.get("MIN_DISK_SPACE_GB", 2))
 MAX_CONCURRENT_DOWNLOADS = int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", 3))
-APP_VERSION = "1.6.0"
+APP_VERSION = "1.6.1"
 
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
@@ -29,6 +29,8 @@ jobs_lock = threading.Lock()
 job_processes = {}  # {job_id: Popen} — separate dict to avoid JSON serialization issues
 
 PROGRESS_RE = re.compile(r'\[download\]\s+([\d.]+)%.*?at\s+(\S+)\s+ETA\s+(\S+)')
+PROGRESS_TEMPLATE_PREFIX = 'PDL_PROGRESS:'
+PROGRESS_TEMPLATE = f'download:{PROGRESS_TEMPLATE_PREFIX}%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s'
 ALLOWED_HISTORY_EXTENSIONS = {'.mp4', '.mp3'}
 VIDEO_FORMATS = {
     'best': 'bestvideo+bestaudio/best',
@@ -73,6 +75,9 @@ def build_download_command(url, format_type='video', quality='best', custom_form
         '--no-playlist',
         '--print', 'TITLE:%(title)s',
         '--print', 'after_move:filepath',
+        '--progress',
+        '--progress-template', PROGRESS_TEMPLATE,
+        '--progress-delta', '1',
         '--output', os.path.join(DOWNLOAD_DIR, '%(title)s_%(id)s.%(ext)s'),
         '--embed-thumbnail',
         '--embed-metadata',
@@ -87,6 +92,24 @@ def build_download_command(url, format_type='video', quality='best', custom_form
                 '--audio-format', 'mp3', '--audio-quality', '192K']
     cmd += ['--', url]
     return cmd
+
+
+def parse_progress_line(line):
+    if line.startswith(PROGRESS_TEMPLATE_PREFIX):
+        parts = line[len(PROGRESS_TEMPLATE_PREFIX):].split('|', 2)
+        if len(parts) != 3:
+            return None
+        percent_text, speed, eta = parts
+        percent_match = re.search(r'([\d.]+)%', percent_text)
+        if not percent_match:
+            return None
+        return float(percent_match.group(1)), speed.strip(), eta.strip()
+
+    m = PROGRESS_RE.search(line)
+    if m:
+        return float(m.group(1)), m.group(2), m.group(3)
+
+    return None
 
 
 def run_download(url, job_id, format_type='video', quality='best', custom_format=''):
@@ -113,13 +136,14 @@ def run_download(url, job_id, format_type='video', quality='best', custom_format
                 line = line.rstrip()
                 if line:
                     output_tail.append(line)
-                m = PROGRESS_RE.search(line)
-                if m:
+                progress = parse_progress_line(line)
+                if progress:
+                    percent, speed, eta = progress
                     with jobs_lock:
                         if job_id in jobs:
-                            jobs[job_id]['progress'] = float(m.group(1))
-                            jobs[job_id]['speed'] = m.group(2)
-                            jobs[job_id]['eta'] = m.group(3)
+                            jobs[job_id]['progress'] = percent
+                            jobs[job_id]['speed'] = speed
+                            jobs[job_id]['eta'] = eta
                 elif line.startswith('TITLE:'):
                     # FIX: Update title from yt-dlp output
                     with jobs_lock:
